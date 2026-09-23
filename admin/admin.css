@@ -1,5 +1,9 @@
 /* Back office — mobile-first, reuses brand tokens from /css/style.css */
 body.admin{ background:var(--paper); }
+/* An author `display` rule on an element otherwise beats the browser's
+   default [hidden]{display:none} at equal specificity — pin it so JS-driven
+   .hidden toggles (login screen, etc.) always actually hide the element. */
+[hidden]{ display:none !important; }
 
 /* login */
 .login-screen{ min-height:100vh; display:grid; place-items:center; padding:20px; background:var(--charcoal); }
