@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Book Online — Texas Dumpster Co</title>
+<meta name="description" content="Book a 14-yard roll-off dumpster, junk hauling, a cleanout, or heavy material removal with Texas Dumpster Co.">
+<link rel="icon" type="image/png" sizes="32x32" href="/assets/images/favicon-32.png">
+<link rel="stylesheet" href="/css/style.css">
+<link rel="stylesheet" href="/book/book.css">
+</head>
+<body>
+
+<header class="book-header">
+  <a href="/" class="book-brand">
+    <img src="/assets/images/icon-mark.jpg" alt="Texas Dumpster Co">
+  </a>
+  <a class="book-phone" href="tel:15123374340">(512) 337-4340</a>
+</header>
+
+<div class="hazard-strip"></div>
+
+<main class="book-main" id="app">
+  <ol class="steps" id="steps"></ol>
+
+  <div id="loading" class="panel muted">Loading booking options…</div>
+  <div id="error" class="panel error" hidden></div>
+
+  <!-- STEP: category -->
+  <section class="step" data-step="category" hidden>
+    <h1>What do you need?</h1>
+    <div class="choice-grid" id="category-list"></div>
+  </section>
+
+  <!-- STEP: type (within category) -->
+  <section class="step" data-step="type" hidden>
+    <h1 id="type-heading">Pick an option</h1>
+    <div class="type-list" id="type-list"></div>
+    <div class="nav-row">
+      <button class="btn btn-ghost" data-back>Back</button>
+    </div>
+  </section>
+
+  <!-- STEP: duration (for roll-off pricing tiers) -->
+  <section class="step" data-step="duration" hidden>
+    <h1>How long do you need it?</h1>
+    <div class="type-list" id="duration-list"></div>
+    <div class="nav-row">
+      <button class="btn btn-ghost" data-back>Back</button>
+    </div>
+  </section>
+
+  <!-- STEP: date + distance -->
+  <section class="step" data-step="date" hidden>
+    <h1>When and where?</h1>
+    <div class="field">
+      <label>Delivery / service date
+        <input type="date" id="start-date">
+      </label>
+      <p class="avail" id="avail-msg"></p>
+    </div>
+    <div class="field">
+      <label>Time window
+        <select id="time-window"></select>
+      </label>
+    </div>
+    <div class="field">
+      <span class="field-label">How far is the job from us?</span>
+      <div class="type-list" id="zone-list"></div>
+    </div>
+    <div class="nav-row">
+      <button class="btn btn-ghost" data-back>Back</button>
+      <button class="btn btn-primary" id="to-details" disabled>Continue</button>
+    </div>
+  </section>
+
+  <!-- STEP: details -->
+  <section class="step" data-step="details" hidden>
+    <h1>Where &amp; what</h1>
+    <div class="grid-2">
+      <label class="field">Full name<input id="c-name" autocomplete="name"></label>
+      <label class="field">Phone<input id="c-phone" autocomplete="tel" inputmode="tel"></label>
+    </div>
+    <label class="field">Email<input id="c-email" type="email" autocomplete="email"></label>
+    <label class="field">Delivery / service address<input id="c-address" autocomplete="street-address"></label>
+    <label class="field">Placement notes (gate code, where to drop, etc.)<textarea id="c-delnotes" rows="2"></textarea></label>
+    <label class="field">Tell us about the job (what you're getting rid of)<textarea id="c-notes" rows="3"></textarea></label>
+
+    <div class="field" id="addon-wrap" hidden>
+      <span class="field-label">Anything special in the load? (adds to your price)</span>
+      <div class="addon-list" id="addon-list"></div>
+    </div>
+
+    <div class="field">
+      <span class="field-label">Photos (optional — helps us plan the job)</span>
+      <input type="file" id="c-photos" accept="image/*" multiple capture="environment">
+      <div class="thumbs" id="thumbs"></div>
+    </div>
+    <div class="nav-row">
+      <button class="btn btn-ghost" data-back>Back</button>
+      <button class="btn btn-primary" id="to-agreement">Continue</button>
+    </div>
+  </section>
+
+  <!-- STEP: agreement -->
+  <section class="step" data-step="agreement" hidden>
+    <h1>Rental agreement</h1>
+    <div class="agreement-box" id="agreement-body">Loading…</div>
+    <label class="field">Type your full name to sign<input id="sign-name" autocomplete="name"></label>
+    <label class="check"><input type="checkbox" id="agree-check"> I have read and agree to the terms above.</label>
+    <div class="nav-row">
+      <button class="btn btn-ghost" data-back>Back</button>
+      <button class="btn btn-primary" id="to-payment" disabled>Continue</button>
+    </div>
+  </section>
+
+  <!-- STEP: payment / review -->
+  <section class="step" data-step="payment" hidden>
+    <h1 id="review-heading">Review &amp; pay</h1>
+    <div class="summary" id="summary"></div>
+
+    <div class="field promo" id="promo-wrap">
+      <label>Promo code
+        <span class="promo-row">
+          <input id="promo-code" placeholder="Optional">
+          <button class="btn btn-ghost" id="apply-promo" type="button">Apply</button>
+        </span>
+      </label>
+      <p class="promo-msg" id="promo-msg"></p>
+    </div>
+
+    <fieldset class="pay-options" id="pay-options">
+      <legend>Payment method</legend>
+      <label class="pay-opt"><input type="radio" name="pay" value="card_full" checked> Pay in full (card)</label>
+      <label class="pay-opt"><input type="radio" name="pay" value="card_deposit"> Pay deposit now (card)</label>
+      <label class="pay-opt" id="cash-opt" hidden><input type="radio" name="pay" value="cash"> Pay cash (needs our approval)</label>
+    </fieldset>
+
+    <div class="panel muted" id="quote-note" hidden>
+      This service is priced by our team based on the details you provided (weight, scope, or access).
+      No payment is collected now — we'll call to confirm your price and schedule.
+    </div>
+
+    <div class="nav-row">
+      <button class="btn btn-ghost" data-back>Back</button>
+      <button class="btn btn-primary" id="submit-booking">Book &amp; Pay</button>
+    </div>
+    <p class="fineprint">Card payments are processed securely by Stripe. You'll be redirected to complete payment.</p>
+  </section>
+</main>
+
+<script type="module" src="/book/booking.js"></script>
+</body>
+</html>

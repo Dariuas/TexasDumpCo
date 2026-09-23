@@ -2,6 +2,27 @@
   publish = "."
   command = ""
 
+[functions]
+  directory = "netlify/functions"
+  node_bundler = "esbuild"
+
+# Clean URLs for the app surfaces
+[[redirects]]
+  from = "/book"
+  to = "/book/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/admin"
+  to = "/admin/index.html"
+  status = 200
+
+# Short alias for API calls -> Netlify Functions
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/:splat"
+  status = 200
+
 [[headers]]
   for = "/*"
   [headers.values]

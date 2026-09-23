@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Back Office — Texas Dumpster Co</title>
+<meta name="robots" content="noindex">
+<link rel="icon" type="image/png" sizes="32x32" href="/assets/images/favicon-32.png">
+<link rel="stylesheet" href="/css/style.css">
+<link rel="stylesheet" href="/admin/admin.css">
+</head>
+<body class="admin">
+
+<!-- LOGIN -->
+<div id="login" class="login-screen" hidden>
+  <form class="login-card" id="login-form">
+    <img src="/assets/images/icon-mark.jpg" alt="" class="login-logo">
+    <h1>Back Office</h1>
+    <label>Email<input type="email" id="login-email" autocomplete="username" required></label>
+    <label>Password<input type="password" id="login-pass" autocomplete="current-password" required></label>
+    <button class="btn btn-primary" type="submit">Sign in</button>
+    <p class="login-err" id="login-err"></p>
+  </form>
+</div>
+
+<!-- APP -->
+<div id="shell" hidden>
+  <header class="admin-top">
+    <button class="menu-btn" id="menu-btn" aria-label="Menu">☰</button>
+    <span class="admin-title">Texas Dumpster Co</span>
+    <span class="admin-user" id="admin-user"></span>
+    <button class="btn btn-ghost btn-sm" id="chg-pass">Password</button>
+    <button class="btn btn-ghost btn-sm" id="logout">Sign out</button>
+  </header>
+
+  <nav class="admin-nav" id="admin-nav">
+    <a data-view="dashboard" class="active">Dashboard</a>
+    <a data-view="bookings">Bookings</a>
+    <a data-view="junk">Junk Hauling</a>
+    <a data-view="inventory">Inventory &amp; Pricing</a>
+    <a data-view="availability">Availability</a>
+    <a data-view="promos" data-admin>Promo Codes</a>
+    <a data-view="agreement" data-admin>Agreement</a>
+    <a data-view="settings" data-admin>Settings</a>
+  </nav>
+
+  <main class="admin-main" id="view"></main>
+</div>
+
+<!-- Detail drawer -->
+<div class="drawer-backdrop" id="drawer-backdrop" hidden></div>
+<aside class="drawer" id="drawer" hidden></aside>
+
+<script type="module" src="/admin/admin.js"></script>
+</body>
+</html>
