@@ -1,4 +1,8 @@
 /* Back office — mobile-first, reuses brand tokens from /css/style.css */
+/* Force light form controls regardless of OS/browser dark-mode preference —
+   without this, unstyled native inputs can auto-render as light-text-on-light
+   (or dark-on-dark) wherever we didn't set explicit colors. */
+:root{ color-scheme: light; }
 body.admin{ background:var(--paper); }
 /* An author `display` rule on an element otherwise beats the browser's
    default [hidden]{display:none} at equal specificity — pin it so JS-driven
@@ -87,6 +91,9 @@ body.admin{ background:var(--paper); }
   .kpi-row{ grid-template-columns:repeat(2,1fr); }
 }
 .chk{ display:inline-flex; align-items:center; gap:4px; margin-right:10px; font-size:.85rem; }
-.drawer label{ display:block; font-family:var(--tag); font-weight:600; text-transform:uppercase; letter-spacing:.04em; font-size:.72rem; margin-top:8px; }
-.drawer textarea, .drawer select, .drawer input[type=file]{ width:100%; margin-top:5px; padding:8px; border:2px solid var(--black); border-radius:var(--radius); font-family:var(--body); text-transform:none; }
+.drawer label{ display:block; color:var(--black); font-family:var(--tag); font-weight:600; text-transform:uppercase; letter-spacing:.04em; font-size:.72rem; margin-top:8px; }
+.drawer textarea, .drawer select, .drawer input{
+  width:100%; margin-top:5px; padding:8px; border:2px solid var(--black); border-radius:var(--radius);
+  font-family:var(--body); text-transform:none; background:var(--white); color:var(--black);
+}
 .toast{ position:fixed; bottom:20px; left:50%; transform:translateX(-50%); background:var(--black); color:var(--yellow); padding:12px 20px; border-radius:var(--radius); z-index:60; font-family:var(--tag); font-weight:600; box-shadow:4px 4px 0 var(--yellow-deep); }

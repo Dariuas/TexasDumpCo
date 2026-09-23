@@ -7,6 +7,7 @@
 <meta name="description" content="Book a 14-yard roll-off dumpster, junk hauling, a cleanout, or heavy material removal with Texas Dumpster Co.">
 <link rel="icon" type="image/png" sizes="32x32" href="/assets/images/favicon-32.png">
 <link rel="stylesheet" href="/css/style.css">
+<link rel="stylesheet" href="/assets/css/availability-calendar.css">
 <link rel="stylesheet" href="/book/book.css">
 </head>
 <body>
@@ -54,9 +55,8 @@
   <section class="step" data-step="date" hidden>
     <h1>When and where?</h1>
     <div class="field">
-      <label>Delivery / service date
-        <input type="date" id="start-date">
-      </label>
+      <span class="field-label">Pick an available date</span>
+      <div id="date-calendar"></div>
       <p class="avail" id="avail-msg"></p>
     </div>
     <div class="field">

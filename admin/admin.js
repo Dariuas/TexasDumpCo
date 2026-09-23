@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
+import { mountAvailabilityCalendar } from "/assets/js/availability-calendar.js";
 
 // ---------- tiny helpers ----------
 const $ = (s, r = document) => r.querySelector(s);
@@ -6,6 +7,8 @@ const el = (html) => { const t = document.createElement("template"); t.innerHTML
 const money = (c) => `$${((c || 0) / 100).toFixed(2)}`;
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[m]));
 const cents = (dollars) => Math.round(parseFloat(dollars || "0") * 100);
+const addDays = (dateStr, n) => { const d = new Date(dateStr + "T00:00:00"); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
+const todayStr = () => new Date().toISOString().slice(0, 10);
 function toast(msg) { const t = el(`<div class="toast">${esc(msg)}</div>`); document.body.appendChild(t); setTimeout(() => t.remove(), 2600); }
 function badge(v) { return `<span class="badge b-${v}">${String(v).replace(/_/g, " ")}</span>`; }
 
@@ -203,9 +206,12 @@ async function openNewBookingForm(serviceFilter, onDone) {
     <label>Email (optional)<input id="nb-email" type="email"></label>
     <label>Address<input id="nb-address"></label>
     <label>Notes<textarea id="nb-notes" rows="2"></textarea></label>
+    <label>Booking length (days)<input id="nb-days" type="number" min="1" value="1" style="max-width:100px"></label>
+    <span class="field-label" style="display:block;margin-top:8px">Pick a start date <span class="hint">(availability for the selected type)</span></span>
+    <div id="nb-calendar" style="margin-top:6px"></div>
     <div class="row two" style="display:grid;gap:10px;grid-template-columns:1fr 1fr;margin-top:8px">
       <label>Start date<input id="nb-start" type="date"></label>
-      <label>End date (optional)<input id="nb-end" type="date"></label>
+      <label>End date<input id="nb-end" type="date"></label>
     </div>
     <label>Agreed price ($)<input id="nb-amount" type="number" step="0.01"></label>
     <div class="row two" style="display:grid;gap:10px;grid-template-columns:1fr 1fr;margin-top:8px">
@@ -215,10 +221,27 @@ async function openNewBookingForm(serviceFilter, onDone) {
     <label id="nb-paid-wrap" hidden>Amount paid now ($)<input id="nb-paid" type="number" step="0.01"></label>
     <div class="actions" style="margin-top:12px"><button class="btn btn-primary btn-sm" id="nb-submit">Create Booking</button></div>`;
   drawer.hidden = false; backdrop.hidden = false;
-  const close = () => { drawer.hidden = true; backdrop.hidden = true; };
+  const close = () => { if (cal) cal.destroy(); drawer.hidden = true; backdrop.hidden = true; };
   $("#nb-close").addEventListener("click", close);
   backdrop.addEventListener("click", close, { once: true });
   $("#nb-status").addEventListener("change", () => { $("#nb-paid-wrap").hidden = $("#nb-status").value !== "deposit_paid"; });
+
+  // Staff can plan further out than the customer-facing lead time; no lead-time floor.
+  const calMin = todayStr(), calMax = addDays(todayStr(), 180);
+  let cal = mountAvailabilityCalendar($("#nb-calendar"), {
+    typeId: $("#nb-type").value, days: +$("#nb-days").value || 1, minDate: calMin, maxDate: calMax,
+    onSelect: (dateStr) => {
+      $("#nb-start").value = dateStr;
+      $("#nb-end").value = addDays(dateStr, (+$("#nb-days").value || 1) - 1);
+    },
+  });
+  $("#nb-type").addEventListener("change", () => cal.setType($("#nb-type").value));
+  $("#nb-days").addEventListener("change", () => {
+    const days = Math.max(1, +$("#nb-days").value || 1);
+    cal.setDays(days);
+    if ($("#nb-start").value) $("#nb-end").value = addDays($("#nb-start").value, days - 1);
+  });
+
   $("#nb-submit").addEventListener("click", async () => {
     if (!$("#nb-name").value.trim() || !$("#nb-phone").value.trim() || !$("#nb-address").value.trim() || !$("#nb-start").value || !$("#nb-amount").value) {
       return alert("Name, phone, address, start date and price are required.");

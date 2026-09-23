@@ -1,0 +1,24 @@
+/* Shared month-view availability calendar (customer /book + admin /admin) */
+.avail-cal{ background:var(--white); border:2px solid var(--black); border-radius:4px; padding:12px; max-width:340px; }
+.ac-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; }
+.ac-month{ font-family:var(--tag), 'Oswald', sans-serif; font-weight:700; text-transform:uppercase; letter-spacing:.04em; font-size:.9rem; }
+.ac-nav{ background:none; border:2px solid var(--black); border-radius:4px; width:28px; height:28px; font-size:1.1rem; line-height:1; cursor:pointer; }
+.ac-nav:disabled{ opacity:.3; cursor:not-allowed; }
+.ac-grid{ display:grid; grid-template-columns:repeat(7,1fr); gap:3px; }
+.ac-weekdays{ margin-bottom:4px; }
+.ac-cell{ text-align:center; }
+.ac-wd{ font-size:.68rem; font-weight:700; color:#7a746a; padding:2px 0; }
+.ac-blank{ visibility:hidden; }
+.ac-day{
+  padding:6px 0; border-radius:4px; border:1px solid transparent; background:#eee; color:#999;
+  font-family:var(--body), sans-serif; font-size:.85rem; cursor:not-allowed;
+}
+.ac-day.ac-open{ background:#e3f5e6; color:#0b0b0c; border-color:#8fd19e; cursor:pointer; font-weight:600; }
+.ac-day.ac-open:hover{ background:#c8ecce; }
+.ac-day.ac-selected{ background:var(--yellow, #ffc61a); border-color:var(--black, #0b0b0c); box-shadow:2px 2px 0 var(--black, #0b0b0c); }
+.ac-day.ac-disabled{ background:#f4f1ea; color:#c7c1b4; }
+.ac-legend{ display:flex; gap:14px; margin-top:8px; font-size:.72rem; color:#7a746a; align-items:center; }
+.ac-dot{ display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:4px; vertical-align:-1px; }
+.ac-dot.ac-open{ background:#8fd19e; }
+.ac-dot.ac-disabled{ background:#f4f1ea; border:1px solid #ddd; }
+.ac-loading{ padding:20px; text-align:center; color:#7a746a; font-size:.85rem; }

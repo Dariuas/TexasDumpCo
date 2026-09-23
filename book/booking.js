@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
+import { mountAvailabilityCalendar } from "/assets/js/availability-calendar.js";
 
 const api = (path, opts) => fetch(`/api/${path}`, opts).then(async (r) => {
   const data = await r.json().catch(() => ({}));
@@ -71,13 +72,11 @@ function showError(msg) {
 function setupStatic() {
   const tw = $("#time-window");
   tw.innerHTML = (state.config.timeWindows || ["Anytime"]).map((w) => `<option>${w}</option>`).join("");
-  const start = $("#start-date");
-  start.min = addDays(todayStr(), state.config.leadTimeDays || 1);
-  start.max = addDays(todayStr(), state.config.bookingWindowDays || 120);
+  state.minDate = addDays(todayStr(), state.config.leadTimeDays || 1);
+  state.maxDate = addDays(todayStr(), state.config.bookingWindowDays || 120);
   if (state.config.cashAccepted) $("#cash-opt").hidden = false;
 
   document.querySelectorAll("[data-back]").forEach((b) => b.addEventListener("click", back));
-  $("#start-date").addEventListener("change", onDateChange);
   $("#to-details").addEventListener("click", () => goStep("details"));
   $("#to-agreement").addEventListener("click", onDetailsNext);
   $("#to-payment").addEventListener("click", () => { renderSummary(); goStep("payment"); });
@@ -111,7 +110,27 @@ function goStep(id) {
   state.step = id;
   updateProgress();
   document.querySelectorAll(".step").forEach((s) => { s.hidden = s.dataset.step !== id; });
+  if (id === "date") mountDateCalendar();
   window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+function mountDateCalendar() {
+  if (state.calendar) { state.calendar.destroy(); state.calendar = null; }
+  $("#to-details").disabled = true;
+  $("#avail-msg").textContent = "";
+  state.calendar = mountAvailabilityCalendar($("#date-calendar"), {
+    typeId: state.type.id,
+    days: state.days || 1,
+    minDate: state.minDate,
+    maxDate: state.maxDate,
+    selectedDate: state.startDate,
+    onSelect: (dateStr) => {
+      state.startDate = dateStr;
+      $("#avail-msg").textContent = `✓ Selected ${dateStr}`;
+      $("#avail-msg").className = "avail ok";
+      $("#to-details").disabled = false;
+    },
+  });
 }
 function advance(from) {
   let i = STEP_ORDER.indexOf(from) + 1;
@@ -214,24 +233,6 @@ function renderZones() {
       state.zone = zones.find((z) => z.code === card.dataset.code);
       $("#zone-list .type-card").forEach((c) => c.classList.toggle("selected", c === card));
     }));
-}
-
-async function onDateChange(e) {
-  state.startDate = e.target.value;
-  const msg = $("#avail-msg");
-  $("#to-details").disabled = true;
-  if (!state.startDate) return;
-  const end = addDays(state.startDate, (state.days || 1) - 1);
-  msg.textContent = "Checking availability…"; msg.className = "avail";
-  try {
-    const { available } = await api(`availability?type=${state.type.id}&start=${state.startDate}&end=${end}`);
-    if (available > 0) {
-      msg.textContent = `✓ Available on ${state.startDate}`; msg.className = "avail ok";
-      $("#to-details").disabled = false;
-    } else {
-      msg.textContent = "Sorry — fully booked for those dates. Try another day."; msg.className = "avail no";
-    }
-  } catch (err) { msg.textContent = err.message; msg.className = "avail no"; }
 }
 
 // ---------- details + add-ons + photos ----------
