@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Booking Confirmed — Texas Dumpster Co</title>
+<link rel="icon" type="image/png" sizes="32x32" href="/assets/images/favicon-32.png">
+<link rel="stylesheet" href="/css/style.css">
+<link rel="stylesheet" href="/book/book.css">
+</head>
+<body>
+<header class="book-header">
+  <a href="/" class="book-brand"><img src="/assets/images/icon-mark.jpg" alt="Texas Dumpster Co"></a>
+  <a class="book-phone" href="tel:15123374340">(512) 337-4340</a>
+</header>
+<div class="hazard-strip"></div>
+
+<main class="confirm-wrap">
+  <div class="confirm-badge" id="badge">✅</div>
+  <h1 id="headline">You're booked!</h1>
+  <p id="sub">Thanks for booking with Texas Dumpster Co. A confirmation is on its way to your email.</p>
+  <div class="confirm-ref" id="ref"></div>
+  <p id="cash-note" hidden>Your <strong>cash booking is pending our approval</strong>. We'll call to confirm delivery — no charge was made.</p>
+  <p style="margin-top:28px"><a class="btn btn-primary" href="/">Back to home</a></p>
+</main>
+
+<script>
+  const params = new URLSearchParams(location.search);
+  const ref = params.get("ref");
+  if (ref) document.getElementById("ref").textContent = `Ref #${ref}`;
+  if (params.get("cash")) {
+    document.getElementById("badge").textContent = "🕒";
+    document.getElementById("headline").textContent = "Request received";
+    document.getElementById("sub").textContent = "Thanks! We just need to approve your cash booking.";
+    document.getElementById("cash-note").hidden = false;
+  }
+</script>
+</body>
+</html>

@@ -60,13 +60,19 @@ if (quiz) {
     resultPanel.classList.toggle('active', name === 'result');
   };
 
+  const bookCta = document.getElementById('quiz-book-cta');
   const showResult = (key) => {
     const result = RESULTS[key];
     if (!result) return;
     resultTitle.textContent = result.title;
     resultCopy.textContent = result.copy;
     resultCta.dataset.tab = result.tab;
-    amigoBox.hidden = !result.amigo;
+    // Everything is now bookable online: dumpster rentals (amigo:true) and
+    // full-service junk/brush hauling (amigo:false) each deep-link to /book
+    // with the right service pre-selected.
+    const service = result.amigo ? 'dumpster' : 'junk';
+    if (bookCta) bookCta.href = `/book/?service=${service}`;
+    amigoBox.hidden = false;
     showStep('result');
   };
 
