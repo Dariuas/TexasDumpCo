@@ -75,6 +75,15 @@ function setupNav() {
     }));
   $("#menu-btn").addEventListener("click", () => nav.classList.toggle("open"));
   $("#logout").addEventListener("click", async () => { await sb.auth.signOut(); location.reload(); });
+  $("#chg-pass").addEventListener("click", async () => {
+    const p1 = prompt("New password (min 8 characters):");
+    if (!p1) return;
+    if (p1.length < 8) return alert("Password must be at least 8 characters.");
+    if (prompt("Confirm new password:") !== p1) return alert("Passwords didn't match.");
+    const { error } = await sb.auth.updateUser({ password: p1 });
+    if (error) return alert(error.message);
+    toast("Password updated");
+  });
 }
 
 const views = {};
