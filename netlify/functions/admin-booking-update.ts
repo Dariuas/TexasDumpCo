@@ -15,6 +15,8 @@ interface Body {
   unit_id?: string | null;
   time_window?: string;
   delivery_notes?: string;
+  amount_total_cents?: number;
+  deposit_cents?: number;
   // reschedule
   start_date?: string;
   end_date?: string;
@@ -62,7 +64,8 @@ export default adminHandler("staff", async (req, user) => {
     case "reschedule": {
       if (!body.start_date || !body.end_date) return badRequest("start_date and end_date required");
       // Availability excluding this booking is enforced by capacity check.
-      const avail = await typeAvailability(booking.type_id, body.start_date, body.end_date);
+      const { data: bt } = await db.from("dumpster_types").select("uses_inventory").eq("id", booking.type_id).maybeSingle();
+      const avail = await typeAvailability(booking.type_id, body.start_date, body.end_date, bt?.uses_inventory ?? true);
       // The booking itself may already occupy a slot on its own dates; allow if
       // there is room OR the dates are unchanged.
       const sameWindow = body.start_date === booking.start_date && body.end_date === booking.end_date;
@@ -77,7 +80,7 @@ export default adminHandler("staff", async (req, user) => {
     case "update":
     default: {
       const patch: Record<string, unknown> = {};
-      for (const f of ["status", "admin_notes", "flags", "unit_id", "time_window", "delivery_notes"] as const) {
+      for (const f of ["status", "admin_notes", "flags", "unit_id", "time_window", "delivery_notes", "amount_total_cents", "deposit_cents"] as const) {
         if (body[f] !== undefined) patch[f] = body[f];
       }
       if (!Object.keys(patch).length) return badRequest("nothing to update");

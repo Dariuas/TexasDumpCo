@@ -74,6 +74,16 @@ label.field{ font-family:var(--tag); font-weight:600; text-transform:uppercase; 
 .agreement-box ul{ list-style:disc; padding-left:20px; }
 .agreement-box li{ margin:6px 0; }
 
+/* add-ons */
+.addon-list{ display:grid; gap:8px; margin-top:8px; }
+.addon-opt{
+  display:flex; align-items:center; gap:10px; padding:10px 12px;
+  border:2px solid var(--black); border-radius:var(--radius); background:var(--white); font-size:.95rem;
+}
+.addon-opt input{ width:20px; height:20px; }
+.addon-opt span:first-of-type{ flex:1; }
+.addon-price{ font-family:var(--tag); font-weight:600; color:#555; }
+
 /* thumbs */
 .thumbs{ display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }
 .thumb{ position:relative; width:72px; height:72px; border:2px solid var(--black); border-radius:3px; overflow:hidden; }

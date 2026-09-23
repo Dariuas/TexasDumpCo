@@ -1,5 +1,6 @@
 import { withErrors, json, badRequest } from "./_shared/response";
 import { typeAvailability, availabilityByType } from "./_shared/availability";
+import { supabaseAdmin } from "./_shared/supabase";
 
 // GET /api/availability?type=<id>&start=YYYY-MM-DD&end=YYYY-MM-DD
 //   -> { available: n }  for a single type
@@ -17,7 +18,9 @@ export default withErrors(async (req: Request) => {
   }
 
   if (type) {
-    const available = await typeAvailability(type, start, end);
+    const { data: t } = await supabaseAdmin()
+      .from("dumpster_types").select("uses_inventory").eq("id", type).maybeSingle();
+    const available = await typeAvailability(type, start, end, t?.uses_inventory ?? true);
     return json({ available });
   }
   const availability = await availabilityByType(start, end);

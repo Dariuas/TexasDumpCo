@@ -102,6 +102,7 @@ views.dashboard = async (main) => {
   const upcoming = bookings.filter((b) => b.status !== "canceled" && b.start_date >= today);
   const todays = bookings.filter((b) => b.start_date === today && b.status !== "canceled");
   const cashPending = bookings.filter((b) => b.payment_status === "cash_pending");
+  const quoteRequests = bookings.filter((b) => b.status === "pending" && (b.flags || []).includes("quote_requested"));
   const revenue = bookings.filter((b) => b.payment_status === "paid").reduce((s, b) => s + b.amount_paid_cents, 0);
 
   main.innerHTML = `
@@ -110,11 +111,13 @@ views.dashboard = async (main) => {
       <div class="kpi"><div class="n">${todays.length}</div><div class="l">Jobs today</div></div>
       <div class="kpi"><div class="n">${upcoming.length}</div><div class="l">Upcoming</div></div>
       <div class="kpi"><div class="n">${cashPending.length}</div><div class="l">Cash to approve</div></div>
-      <div class="kpi"><div class="n">${money(revenue)}</div><div class="l">Collected</div></div>
+      <div class="kpi"><div class="n">${quoteRequests.length}</div><div class="l">Quotes to price</div></div>
     </div>
+    ${quoteRequests.length ? `<h3>📞 Needs a phone quote (cleanout / heavy material / yard waste / 35+ mi)</h3>${bookingTable(quoteRequests)}` : ""}
     ${cashPending.length ? `<h3>⚠ Cash bookings awaiting approval</h3>${bookingTable(cashPending)}` : ""}
     <h3>Next up</h3>
-    ${upcoming.length ? bookingTable(upcoming.slice(0, 15)) : `<div class="empty">No upcoming bookings.</div>`}`;
+    ${upcoming.length ? bookingTable(upcoming.slice(0, 15)) : `<div class="empty">No upcoming bookings.</div>`}
+    <p class="hint">Collected to date: ${money(revenue)}</p>`;
   wireRows(main);
 };
 
@@ -138,8 +141,11 @@ function bookingListView(serviceFilter) {
         <input type="date" id="f-from" title="From date">
         <input type="date" id="f-to" title="To date">
         <button class="btn btn-primary btn-sm" id="f-go">Filter</button>
+        <button class="btn btn-ghost btn-sm" id="f-new">+ New Booking (Phone Quote)</button>
       </div>
       <div id="list"><p class="muted">Loading…</p></div>`;
+
+    $("#f-new").addEventListener("click", () => openNewBookingForm(serviceFilter, load));
 
     const load = async () => {
       const p = new URLSearchParams();
@@ -180,6 +186,63 @@ function wireRows(main) {
     tr.addEventListener("click", () => openBooking(tr.dataset.id)));
 }
 
+// ---------- manual "phone quote" booking entry (contractor / heavy material / cleanouts) ----------
+async function openNewBookingForm(serviceFilter, onDone) {
+  const { types } = await authFetch("admin-inventory");
+  const list = (serviceFilter ? types.filter((t) => t.service === serviceFilter) : types).filter((t) => t.active);
+  const drawer = $("#drawer"), backdrop = $("#drawer-backdrop");
+  drawer.innerHTML = `
+    <button class="close" id="nb-close">×</button>
+    <h2>New Booking — Phone Quote</h2>
+    <p class="hint">For contractor accounts, heavy material, cleanouts, or any job priced by phone. Confirms immediately.</p>
+    <label>Service type<select id="nb-type">${list.map((t) => `<option value="${t.id}">${esc(t.name)}</option>`).join("")}</select></label>
+    <div class="row two" style="display:grid;gap:10px;grid-template-columns:1fr 1fr;margin-top:8px">
+      <label>Customer name<input id="nb-name"></label>
+      <label>Phone<input id="nb-phone"></label>
+    </div>
+    <label>Email (optional)<input id="nb-email" type="email"></label>
+    <label>Address<input id="nb-address"></label>
+    <label>Notes<textarea id="nb-notes" rows="2"></textarea></label>
+    <div class="row two" style="display:grid;gap:10px;grid-template-columns:1fr 1fr;margin-top:8px">
+      <label>Start date<input id="nb-start" type="date"></label>
+      <label>End date (optional)<input id="nb-end" type="date"></label>
+    </div>
+    <label>Agreed price ($)<input id="nb-amount" type="number" step="0.01"></label>
+    <div class="row two" style="display:grid;gap:10px;grid-template-columns:1fr 1fr;margin-top:8px">
+      <label>Payment method<select id="nb-method"><option value="cash">Cash</option><option value="card">Card</option></select></label>
+      <label>Payment status<select id="nb-status"><option value="unpaid">Unpaid (invoice later)</option><option value="paid">Paid in full</option><option value="deposit_paid">Deposit paid</option></select></label>
+    </div>
+    <label id="nb-paid-wrap" hidden>Amount paid now ($)<input id="nb-paid" type="number" step="0.01"></label>
+    <div class="actions" style="margin-top:12px"><button class="btn btn-primary btn-sm" id="nb-submit">Create Booking</button></div>`;
+  drawer.hidden = false; backdrop.hidden = false;
+  const close = () => { drawer.hidden = true; backdrop.hidden = true; };
+  $("#nb-close").addEventListener("click", close);
+  backdrop.addEventListener("click", close, { once: true });
+  $("#nb-status").addEventListener("change", () => { $("#nb-paid-wrap").hidden = $("#nb-status").value !== "deposit_paid"; });
+  $("#nb-submit").addEventListener("click", async () => {
+    if (!$("#nb-name").value.trim() || !$("#nb-phone").value.trim() || !$("#nb-address").value.trim() || !$("#nb-start").value || !$("#nb-amount").value) {
+      return alert("Name, phone, address, start date and price are required.");
+    }
+    try {
+      await post("admin-create-booking", {
+        type_id: $("#nb-type").value,
+        customer_name: $("#nb-name").value.trim(),
+        customer_email: $("#nb-email").value.trim() || undefined,
+        customer_phone: $("#nb-phone").value.trim(),
+        delivery_address: $("#nb-address").value.trim(),
+        notes: $("#nb-notes").value.trim(),
+        start_date: $("#nb-start").value,
+        end_date: $("#nb-end").value || undefined,
+        amount_total_cents: cents($("#nb-amount").value),
+        payment_method: $("#nb-method").value,
+        payment_status: $("#nb-status").value,
+        amount_paid_cents: cents($("#nb-paid")?.value || "0"),
+      });
+      toast("Booking created"); close(); onDone();
+    } catch (e) { alert(e.message); }
+  });
+}
+
 // ---------- booking drawer ----------
 async function openBooking(id) {
   const { booking: b, photos, payments } = await authFetch(`admin-bookings?id=${id}`);
@@ -204,6 +267,8 @@ async function openBooking(id) {
     </dl>
 
     <div class="drawer-actions">
+      ${(b.flags || []).includes("quote_requested") && b.status === "pending" ? `
+        <button class="btn btn-primary btn-sm" data-act="set-price">Set Final Price &amp; Confirm</button>` : ""}
       ${b.payment_status === "cash_pending" ? `
         <button class="btn btn-primary btn-sm" data-act="cash-approve">Approve cash</button>
         <button class="btn btn-ghost btn-sm" data-act="cash-approve-collected">Approve + collected</button>
@@ -263,6 +328,11 @@ async function openBooking(id) {
         const amt = prompt(`Refund amount in dollars (max ${money(refundable)}):`, (refundable / 100).toFixed(2)); if (!amt) return;
         await post("admin-refund", { booking_id: id, amount_cents: cents(amt) });
         toast("Refunded"); refresh();
+      } else if (act === "set-price") {
+        const amt = prompt("Final agreed price in dollars:", (b.amount_total_cents / 100).toFixed(2)); if (!amt) return;
+        const remainingFlags = (b.flags || []).filter((f) => f !== "quote_requested");
+        await post("admin-booking-update", { id, action: "update", amount_total_cents: cents(amt), status: "confirmed", flags: remainingFlags });
+        toast("Price set — booking confirmed"); refresh();
       } else if (act === "cash-approve") {
         await post("admin-approve-cash", { booking_id: id, decision: "approve" }); toast("Approved"); refresh();
       } else if (act === "cash-approve-collected") {
@@ -289,16 +359,29 @@ function currentView() { return $("#admin-nav a.active")?.dataset.view || "dashb
 // ==================================================================
 //  INVENTORY & PRICING
 // ==================================================================
+const PRICING_MODE_HINT = {
+  flat: "One fixed price (e.g. junk load-volume tiers).",
+  duration_tiers: "Priced by rental length — edit the day/price tiers below.",
+  quote_only: "\"Starting at\" price shown online; customer requests a quote, staff sets the real price (Section F/G/contractor jobs).",
+};
+
 views.inventory = async (main) => {
-  const { types, units } = await authFetch("admin-inventory");
+  const { types, units, tiers, addons } = await authFetch("admin-inventory");
   const isAdmin = me.role === "admin";
   main.innerHTML = `
     <h2>Inventory &amp; Pricing</h2>
+    <p class="hint">Matches the TXD Master Pricing &amp; Phone Call Guide. Contractor rates and judgment fees are reference-only — apply them via <strong>Bookings → + New Booking (Phone Quote)</strong>, see Settings.</p>
     <h3>Types &amp; pricing ${isAdmin ? "" : "<span class='hint'>(read-only — admin edits pricing)</span>"}</h3>
     <div id="types"></div>
     ${isAdmin ? `<button class="btn btn-ghost btn-sm" id="add-type">+ Add type</button>` : ""}
-    <h3>Units</h3>
-    <div id="units"></div>`;
+    <h3>Units (physical containers)</h3>
+    <p class="hint">Types sharing the same "Equipment pool" label share physical containers for availability (e.g. Standard + Clean Green Waste roll-offs).</p>
+    <div id="units"></div>
+    <h3>Add-on items</h3>
+    <p class="hint">Specialty items shown as checkboxes on junk-hauling bookings (mattress, appliance, access fees...).</p>
+    <div id="addons"></div>`;
+
+  const typeName = (id) => types.find((t) => t.id === id)?.name || "?";
 
   const renderTypes = () => {
     $("#types").innerHTML = types.map((t) => `
@@ -309,42 +392,84 @@ views.inventory = async (main) => {
           <label>Active<select class="f-active" ${isAdmin ? "" : "disabled"}><option value="true" ${t.active ? "selected" : ""}>Yes</option><option value="false" ${!t.active ? "selected" : ""}>No</option></select></label>
         </div>
         <div class="row three">
-          <label>Base price ($)<input class="f-base" type="number" step="0.01" value="${(t.base_price_cents / 100).toFixed(2)}" ${isAdmin ? "" : "disabled"}></label>
+          <label>Category<input class="f-cat" value="${esc(t.category)}" ${isAdmin ? "" : "disabled"} placeholder="e.g. roll_off_standard"></label>
+          <label>Pricing mode<select class="f-mode" ${isAdmin ? "" : "disabled"}>${["flat", "duration_tiers", "quote_only"].map((m) => `<option value="${m}" ${m === t.pricing_mode ? "selected" : ""}>${m}</option>`).join("")}</select></label>
+          <label>Price note<input class="f-note" value="${esc(t.price_note || "")}" ${isAdmin ? "" : "disabled"} placeholder="e.g. Starting at"></label>
+        </div>
+        <p class="hint" id="mode-hint-${t.id}">${PRICING_MODE_HINT[t.pricing_mode] || ""}</p>
+        <div class="row three">
+          <label>${t.pricing_mode === "duration_tiers" ? "Lowest tier / display ($)" : "Base price ($)"}<input class="f-base" type="number" step="0.01" value="${(t.base_price_cents / 100).toFixed(2)}" ${isAdmin ? "" : "disabled"}></label>
           <label>Deposit ($, 0=use %)<input class="f-dep" type="number" step="0.01" value="${(t.deposit_cents / 100).toFixed(2)}" ${isAdmin ? "" : "disabled"}></label>
           <label>Days included<input class="f-days" type="number" value="${t.rental_days_included}" ${isAdmin ? "" : "disabled"}></label>
         </div>
         <div class="row three">
-          <label>Extra day ($)<input class="f-extra" type="number" step="0.01" value="${(t.extra_day_fee_cents / 100).toFixed(2)}" ${isAdmin ? "" : "disabled"}></label>
+          <label>Extra day beyond tiers ($)<input class="f-extra" type="number" step="0.01" value="${(t.extra_day_fee_cents / 100).toFixed(2)}" ${isAdmin ? "" : "disabled"}></label>
           <label>Weight limit (tons)<input class="f-wt" type="number" step="0.1" value="${t.weight_limit_tons ?? ""}" ${isAdmin ? "" : "disabled"}></label>
           <label>Overage/ton ($)<input class="f-over" type="number" step="0.01" value="${(t.overage_fee_cents / 100).toFixed(2)}" ${isAdmin ? "" : "disabled"}></label>
         </div>
+        <div class="row two">
+          <label>Uses physical inventory?<select class="f-inv" ${isAdmin ? "" : "disabled"}><option value="true" ${t.uses_inventory ? "selected" : ""}>Yes (roll-off container)</option><option value="false" ${!t.uses_inventory ? "selected" : ""}>No (crew/truck job)</option></select></label>
+          <label>Equipment pool (shared containers)<input class="f-pool" value="${esc(t.equipment_pool || "")}" ${isAdmin ? "" : "disabled"} placeholder="blank = own pool"></label>
+        </div>
         <label>Description<input class="f-desc" value="${esc(t.description || "")}" ${isAdmin ? "" : "disabled"}></label>
         ${isAdmin ? `<div class="actions"><button class="btn btn-primary btn-sm" data-save>Save</button></div>` : ""}
+        ${t.pricing_mode === "duration_tiers" ? `
+          <div class="section-line"></div>
+          <h4>Duration price tiers — ${esc(t.name)}</h4>
+          <div id="tiers-${t.id}"></div>
+          ${isAdmin ? `<div class="row three" style="margin-top:8px">
+            <label>Days<input class="nt-days" type="number" placeholder="7"></label>
+            <label>Price ($)<input class="nt-price" type="number" step="0.01" placeholder="419.00"></label>
+            <label>Label<input class="nt-label" placeholder="7 Days - Most Popular"></label>
+          </div><div class="actions"><button class="btn btn-ghost btn-sm" data-add-tier="${t.id}">+ Add / update tier</button></div>` : ""}` : ""}
       </div>`).join("");
+
     if (isAdmin) $("#types").querySelectorAll("[data-save]").forEach((btn) => btn.addEventListener("click", async () => {
       const box = btn.closest(".form");
       await post("admin-inventory", {
         action: "update_type", id: box.dataset.id,
         name: box.querySelector(".f-name").value, service: box.querySelector(".f-service").value,
         active: box.querySelector(".f-active").value === "true",
+        category: box.querySelector(".f-cat").value, pricing_mode: box.querySelector(".f-mode").value,
+        price_note: box.querySelector(".f-note").value || null,
         base_price_cents: cents(box.querySelector(".f-base").value), deposit_cents: cents(box.querySelector(".f-dep").value),
         rental_days_included: +box.querySelector(".f-days").value, extra_day_fee_cents: cents(box.querySelector(".f-extra").value),
         weight_limit_tons: parseFloat(box.querySelector(".f-wt").value) || null, overage_fee_cents: cents(box.querySelector(".f-over").value),
+        uses_inventory: box.querySelector(".f-inv").value === "true", equipment_pool: box.querySelector(".f-pool").value || null,
         description: box.querySelector(".f-desc").value,
       });
-      toast("Type saved");
+      toast("Type saved"); render("inventory");
     }));
+    if (isAdmin) $("#types").querySelectorAll("[data-add-tier]").forEach((btn) => btn.addEventListener("click", async () => {
+      const typeId = btn.dataset.addTier;
+      const box = btn.closest(".form");
+      const days = +box.querySelector(".nt-days").value, price = box.querySelector(".nt-price").value, label = box.querySelector(".nt-label").value;
+      if (!days || !price) return alert("Days and price are required.");
+      await post("admin-inventory", { action: "upsert_tier", type_id: typeId, days, price_cents: cents(price), label: label || null, sort_order: days });
+      toast("Tier saved"); render("inventory");
+    }));
+    types.filter((t) => t.pricing_mode === "duration_tiers").forEach((t) => {
+      const rows = tiers.filter((r) => r.type_id === t.id).sort((a, b) => a.days - b.days);
+      const wrap = $(`#tiers-${t.id}`);
+      if (!wrap) return;
+      wrap.innerHTML = rows.length ? `<div class="table-wrap"><table class="table"><thead><tr><th>Days</th><th>Price</th><th>Label</th>${isAdmin ? "<th></th>" : ""}</tr></thead><tbody>
+        ${rows.map((r) => `<tr><td>${r.days}</td><td>${money(r.price_cents)}</td><td>${esc(r.label || "")}</td>${isAdmin ? `<td><button class="btn btn-ghost btn-sm" data-del-tier="${r.id}">Del</button></td>` : ""}</tr>`).join("")}
+        </tbody></table></div>` : `<p class="muted">No tiers yet.</p>`;
+      if (isAdmin) wrap.querySelectorAll("[data-del-tier]").forEach((b) => b.addEventListener("click", async () => {
+        await post("admin-inventory", { action: "delete_tier", id: b.dataset.delTier }); render("inventory");
+      }));
+    });
   };
   renderTypes();
 
   if (isAdmin) $("#add-type").addEventListener("click", async () => {
     const name = prompt("New type name:"); if (!name) return;
     const service = prompt("Service (dumpster/junk):", "dumpster") || "dumpster";
-    const { type } = await post("admin-inventory", { action: "create_type", name, service, base_price_cents: 0, active: true });
-    types.push(type); renderTypes(); toast("Added");
+    const category = prompt("Category (grouping key, e.g. roll_off_standard, junk_household, junk_cleanout, heavy_material):", "general") || "general";
+    const pricingMode = prompt("Pricing mode (flat / duration_tiers / quote_only):", "flat") || "flat";
+    await post("admin-inventory", { action: "create_type", name, service, category, pricing_mode: pricingMode, base_price_cents: 0, active: true });
+    render("inventory");
   });
-
-  const typeName = (id) => types.find((t) => t.id === id)?.name || "?";
   const renderUnits = () => {
     $("#units").innerHTML = `<div class="table-wrap"><table class="table">
       <thead><tr><th>Label</th><th>Type</th><th>Status</th><th></th></tr></thead><tbody>
@@ -377,6 +502,44 @@ views.inventory = async (main) => {
     });
   };
   renderUnits();
+
+  const renderAddons = () => {
+    $("#addons").innerHTML = `<div class="table-wrap"><table class="table">
+      <thead><tr><th>Name</th><th>Category</th><th>Price</th><th>Active</th><th></th></tr></thead><tbody>
+      ${addons.map((a) => `<tr>
+        <td><input class="a-name" data-id="${a.id}" value="${esc(a.name)}" ${isAdmin ? "" : "disabled"}></td>
+        <td><select class="a-cat" data-id="${a.id}" ${isAdmin ? "" : "disabled"}>${["specialty", "appliance", "access", "fee"].map((c) => `<option ${c === a.category ? "selected" : ""}>${c}</option>`).join("")}</select></td>
+        <td><input class="a-price" data-id="${a.id}" type="number" step="0.01" value="${(a.price_cents / 100).toFixed(2)}" style="width:90px" ${isAdmin ? "" : "disabled"}></td>
+        <td><select class="a-active" data-id="${a.id}" ${isAdmin ? "" : "disabled"}><option value="true" ${a.active ? "selected" : ""}>Yes</option><option value="false" ${!a.active ? "selected" : ""}>No</option></select></td>
+        <td>${isAdmin ? `<button class="btn btn-ghost btn-sm a-save" data-id="${a.id}">Save</button> <button class="btn btn-ghost btn-sm a-del" data-id="${a.id}">Del</button>` : ""}</td>
+      </tr>`).join("")}
+      </tbody></table></div>
+      ${isAdmin ? `<div class="form" style="margin-top:12px"><div class="row three">
+        <label>Name<input id="na-name"></label>
+        <label>Category<select id="na-cat">${["specialty", "appliance", "access", "fee"].map((c) => `<option>${c}</option>`).join("")}</select></label>
+        <label>Price ($)<input id="na-price" type="number" step="0.01"></label>
+      </div><div class="actions"><button class="btn btn-primary btn-sm" id="na-add">+ Add add-on</button></div></div>` : ""}`;
+    if (!isAdmin) return;
+    $("#addons").querySelectorAll(".a-save").forEach((b) => b.addEventListener("click", async () => {
+      const id = b.dataset.id;
+      await post("admin-inventory", {
+        action: "update_addon", id,
+        name: $(`.a-name[data-id="${id}"]`).value, category: $(`.a-cat[data-id="${id}"]`).value,
+        price_cents: cents($(`.a-price[data-id="${id}"]`).value), active: $(`.a-active[data-id="${id}"]`).value === "true",
+      });
+      toast("Add-on saved");
+    }));
+    $("#addons").querySelectorAll(".a-del").forEach((b) => b.addEventListener("click", async () => {
+      if (!confirm("Delete this add-on?")) return;
+      await post("admin-inventory", { action: "delete_addon", id: b.dataset.id }); render("inventory");
+    }));
+    $("#na-add").addEventListener("click", async () => {
+      const name = $("#na-name").value.trim(); if (!name || !$("#na-price").value) return alert("Name and price required.");
+      await post("admin-inventory", { action: "create_addon", name, category: $("#na-cat").value, price_cents: cents($("#na-price").value) });
+      render("inventory");
+    });
+  };
+  renderAddons();
 };
 
 // ==================================================================
@@ -499,7 +662,34 @@ views.settings = async (main) => {
       </div>
       <label>Time windows (comma separated)<input id="s-tw" value="${esc((v("time_windows", []) || []).join(", "))}"></label>
       <div class="actions"><button class="btn btn-primary btn-sm" id="s-save">Save settings</button></div>
+    </div>
+
+    <h3>Delivery distance zones</h3>
+    <p class="hint">Self-reported by the customer at booking, same question the phone guide asks: "where is the job?"</p>
+    <div class="form">
+      <div class="row three">
+        <label>0-15 miles<input value="Included" disabled></label>
+        <label>16-25 miles ($)<input id="z2" type="number" step="0.01" value="${esc(((zones()[1]?.fee_cents ?? 3500) / 100).toFixed(2))}"></label>
+        <label>26-35 miles ($)<input id="z3" type="number" step="0.01" value="${esc(((zones()[2]?.fee_cents ?? 6500) / 100).toFixed(2))}"></label>
+      </div>
+      <p class="hint">Beyond 35 miles always routes to a phone quote — no fee to set.</p>
+      <div class="actions"><button class="btn btn-primary btn-sm" id="z-save">Save zone fees</button></div>
+    </div>
+
+    <h3>Contractor rate card <span class="hint">(reference — apply via + New Booking)</span></h3>
+    <div class="form">
+      <textarea id="s-contractor" rows="8">${esc(JSON.stringify(v("contractor_rate_card", {}), null, 2))}</textarea>
+      <div class="actions"><button class="btn btn-ghost btn-sm" id="s-contractor-save">Save</button></div>
+    </div>
+
+    <h3>Judgment fee reference <span class="hint">(dry run, stairs, long carry... — apply manually)</span></h3>
+    <div class="form">
+      <textarea id="s-fees" rows="10">${esc(JSON.stringify(v("fee_schedule_reference", {}), null, 2))}</textarea>
+      <div class="actions"><button class="btn btn-ghost btn-sm" id="s-fees-save">Save</button></div>
     </div>`;
+
+  function zones() { return v("distance_zones", []) || []; }
+
   $("#s-save").addEventListener("click", async () => {
     await post("admin-settings", { settings: {
       company_name: $("#s-name").value, company_phone: $("#s-phone").value, company_email: $("#s-email").value,
@@ -509,5 +699,32 @@ views.settings = async (main) => {
       time_windows: $("#s-tw").value.split(",").map((x) => x.trim()).filter(Boolean),
     } });
     toast("Settings saved");
+  });
+
+  $("#z-save").addEventListener("click", async () => {
+    const z = zones();
+    const updated = [
+      z[0] || { code: "zone1", label: "0-15 miles (included)", fee_cents: 0, quote_only: false },
+      { ...(z[1] || { code: "zone2", label: "16-25 miles" }), fee_cents: cents($("#z2").value), quote_only: false },
+      { ...(z[2] || { code: "zone3", label: "26-35 miles" }), fee_cents: cents($("#z3").value), quote_only: false },
+      z[3] || { code: "zone4", label: "Beyond 35 miles", fee_cents: 0, quote_only: true },
+    ];
+    await post("admin-settings", { settings: { distance_zones: updated } });
+    toast("Zone fees saved");
+  });
+
+  $("#s-contractor-save").addEventListener("click", async () => {
+    try {
+      const parsed = JSON.parse($("#s-contractor").value);
+      await post("admin-settings", { settings: { contractor_rate_card: parsed } });
+      toast("Contractor rate card saved");
+    } catch { alert("Invalid JSON."); }
+  });
+  $("#s-fees-save").addEventListener("click", async () => {
+    try {
+      const parsed = JSON.parse($("#s-fees").value);
+      await post("admin-settings", { settings: { fee_schedule_reference: parsed } });
+      toast("Fee reference saved");
+    } catch { alert("Invalid JSON."); }
   });
 };

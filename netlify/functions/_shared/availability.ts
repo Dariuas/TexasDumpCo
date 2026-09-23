@@ -1,22 +1,32 @@
 import { supabaseAdmin } from "./supabase";
 import { loadSettings, num } from "./settings";
 
-// Availability for a single type over a date range, honoring inventory,
-// overlapping bookings, blackouts, and an optional per-day cap.
+const BIG_NUMBER = 999; // effectively "unlimited" for crew/truck-based services
+
+// Availability for a single type over a date range. Types with physical
+// inventory (uses_inventory=true, e.g. roll-off containers) are constrained
+// by unit count, overlapping bookings, and blackouts (via the pool-aware
+// `type_availability` SQL function). Crew/truck-based services (junk hauling,
+// cleanouts — uses_inventory=false) have no numbered units, so their capacity
+// comes only from the optional per-day cap; without one they're unconstrained.
 export async function typeAvailability(
   typeId: string,
   startDate: string,
   endDate: string,
+  usesInventory = true,
 ): Promise<number> {
   const db = supabaseAdmin();
-  const { data, error } = await db.rpc("type_availability", {
-    p_type: typeId,
-    p_start: startDate,
-    p_end: endDate,
-  });
-  if (error) throw new Error(error.message);
+  let avail = BIG_NUMBER;
 
-  let avail = (data as number) ?? 0;
+  if (usesInventory) {
+    const { data, error } = await db.rpc("type_availability", {
+      p_type: typeId,
+      p_start: startDate,
+      p_end: endDate,
+    });
+    if (error) throw new Error(error.message);
+    avail = (data as number) ?? 0;
+  }
 
   const settings = await loadSettings();
   const cap = num(settings, "per_day_cap", 0);
@@ -41,13 +51,13 @@ export async function availabilityByType(
   const db = supabaseAdmin();
   const { data: types, error } = await db
     .from("dumpster_types")
-    .select("id")
+    .select("id, uses_inventory")
     .eq("active", true);
   if (error) throw new Error(error.message);
 
   const out: Record<string, number> = {};
   for (const t of types ?? []) {
-    out[t.id] = await typeAvailability(t.id, startDate, endDate);
+    out[t.id] = await typeAvailability(t.id, startDate, endDate, t.uses_inventory);
   }
   return out;
 }

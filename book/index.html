@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Book Online — Texas Dumpster Co</title>
-<meta name="description" content="Book a roll-off dumpster or junk hauling with Texas Dumpster Co. Pick your size, date, and pay online.">
+<meta name="description" content="Book a 14-yard roll-off dumpster, junk hauling, a cleanout, or heavy material removal with Texas Dumpster Co.">
 <link rel="icon" type="image/png" sizes="32x32" href="/assets/images/favicon-32.png">
 <link rel="stylesheet" href="/css/style.css">
 <link rel="stylesheet" href="/book/book.css">
@@ -21,54 +21,40 @@
 <div class="hazard-strip"></div>
 
 <main class="book-main" id="app">
-  <!-- Progress -->
-  <ol class="steps" id="steps">
-    <li data-step="1" class="active">Service</li>
-    <li data-step="2">Size</li>
-    <li data-step="3">Date</li>
-    <li data-step="4">Details</li>
-    <li data-step="5">Agreement</li>
-    <li data-step="6">Payment</li>
-  </ol>
+  <ol class="steps" id="steps"></ol>
 
   <div id="loading" class="panel muted">Loading booking options…</div>
   <div id="error" class="panel error" hidden></div>
 
-  <!-- STEP 1: service -->
-  <section class="step" data-step="1" hidden>
+  <!-- STEP: category -->
+  <section class="step" data-step="category" hidden>
     <h1>What do you need?</h1>
-    <div class="choice-grid">
-      <button class="choice" data-service="dumpster">
-        <span class="choice-title">Rent a Dumpster</span>
-        <span class="choice-sub">Roll-off you load yourself. 10–30 yard.</span>
-      </button>
-      <button class="choice" data-service="junk">
-        <span class="choice-title">Junk Hauling</span>
-        <span class="choice-sub">Our crew hauls it away. Clean-outs &amp; big items.</span>
-      </button>
-    </div>
+    <div class="choice-grid" id="category-list"></div>
   </section>
 
-  <!-- STEP 2: size / type -->
-  <section class="step" data-step="2" hidden>
-    <h1>Pick your <span id="svc-label">option</span></h1>
+  <!-- STEP: type (within category) -->
+  <section class="step" data-step="type" hidden>
+    <h1 id="type-heading">Pick an option</h1>
     <div class="type-list" id="type-list"></div>
-    <div class="rental-days" id="rental-days-wrap" hidden>
-      <label>Rental length
-        <select id="rental-days"></select>
-      </label>
-    </div>
     <div class="nav-row">
       <button class="btn btn-ghost" data-back>Back</button>
-      <button class="btn btn-primary" id="to-date" disabled>Continue</button>
     </div>
   </section>
 
-  <!-- STEP 3: date -->
-  <section class="step" data-step="3" hidden>
-    <h1>When do you want it?</h1>
+  <!-- STEP: duration (for roll-off pricing tiers) -->
+  <section class="step" data-step="duration" hidden>
+    <h1>How long do you need it?</h1>
+    <div class="type-list" id="duration-list"></div>
+    <div class="nav-row">
+      <button class="btn btn-ghost" data-back>Back</button>
+    </div>
+  </section>
+
+  <!-- STEP: date + distance -->
+  <section class="step" data-step="date" hidden>
+    <h1>When and where?</h1>
     <div class="field">
-      <label>Delivery date
+      <label>Delivery / service date
         <input type="date" id="start-date">
       </label>
       <p class="avail" id="avail-msg"></p>
@@ -78,23 +64,32 @@
         <select id="time-window"></select>
       </label>
     </div>
+    <div class="field">
+      <span class="field-label">How far is the job from us?</span>
+      <div class="type-list" id="zone-list"></div>
+    </div>
     <div class="nav-row">
       <button class="btn btn-ghost" data-back>Back</button>
       <button class="btn btn-primary" id="to-details" disabled>Continue</button>
     </div>
   </section>
 
-  <!-- STEP 4: details -->
-  <section class="step" data-step="4" hidden>
+  <!-- STEP: details -->
+  <section class="step" data-step="details" hidden>
     <h1>Where &amp; what</h1>
     <div class="grid-2">
       <label class="field">Full name<input id="c-name" autocomplete="name"></label>
       <label class="field">Phone<input id="c-phone" autocomplete="tel" inputmode="tel"></label>
     </div>
     <label class="field">Email<input id="c-email" type="email" autocomplete="email"></label>
-    <label class="field">Delivery address<input id="c-address" autocomplete="street-address"></label>
+    <label class="field">Delivery / service address<input id="c-address" autocomplete="street-address"></label>
     <label class="field">Placement notes (gate code, where to drop, etc.)<textarea id="c-delnotes" rows="2"></textarea></label>
     <label class="field">Tell us about the job (what you're getting rid of)<textarea id="c-notes" rows="3"></textarea></label>
+
+    <div class="field" id="addon-wrap" hidden>
+      <span class="field-label">Anything special in the load? (adds to your price)</span>
+      <div class="addon-list" id="addon-list"></div>
+    </div>
 
     <div class="field">
       <span class="field-label">Photos (optional — helps us plan the job)</span>
@@ -107,8 +102,8 @@
     </div>
   </section>
 
-  <!-- STEP 5: agreement -->
-  <section class="step" data-step="5" hidden>
+  <!-- STEP: agreement -->
+  <section class="step" data-step="agreement" hidden>
     <h1>Rental agreement</h1>
     <div class="agreement-box" id="agreement-body">Loading…</div>
     <label class="field">Type your full name to sign<input id="sign-name" autocomplete="name"></label>
@@ -119,12 +114,12 @@
     </div>
   </section>
 
-  <!-- STEP 6: payment -->
-  <section class="step" data-step="6" hidden>
-    <h1>Review &amp; pay</h1>
+  <!-- STEP: payment / review -->
+  <section class="step" data-step="payment" hidden>
+    <h1 id="review-heading">Review &amp; pay</h1>
     <div class="summary" id="summary"></div>
 
-    <div class="field promo">
+    <div class="field promo" id="promo-wrap">
       <label>Promo code
         <span class="promo-row">
           <input id="promo-code" placeholder="Optional">
@@ -140,6 +135,11 @@
       <label class="pay-opt"><input type="radio" name="pay" value="card_deposit"> Pay deposit now (card)</label>
       <label class="pay-opt" id="cash-opt" hidden><input type="radio" name="pay" value="cash"> Pay cash (needs our approval)</label>
     </fieldset>
+
+    <div class="panel muted" id="quote-note" hidden>
+      This service is priced by our team based on the details you provided (weight, scope, or access).
+      No payment is collected now — we'll call to confirm your price and schedule.
+    </div>
 
     <div class="nav-row">
       <button class="btn btn-ghost" data-back>Back</button>

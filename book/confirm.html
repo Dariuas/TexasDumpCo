@@ -21,6 +21,7 @@
   <p id="sub">Thanks for booking with Texas Dumpster Co. A confirmation is on its way to your email.</p>
   <div class="confirm-ref" id="ref"></div>
   <p id="cash-note" hidden>Your <strong>cash booking is pending our approval</strong>. We'll call to confirm delivery — no charge was made.</p>
+  <p id="quote-note" hidden>We'll review the details and <strong>call you to confirm the exact price</strong> based on scope, weight, or access — no charge was made.</p>
   <p style="margin-top:28px"><a class="btn btn-primary" href="/">Back to home</a></p>
 </main>
 
@@ -33,6 +34,12 @@
     document.getElementById("headline").textContent = "Request received";
     document.getElementById("sub").textContent = "Thanks! We just need to approve your cash booking.";
     document.getElementById("cash-note").hidden = false;
+  }
+  if (params.get("quote")) {
+    document.getElementById("badge").textContent = "📞";
+    document.getElementById("headline").textContent = "Quote requested";
+    document.getElementById("sub").textContent = "Thanks! Your request is in.";
+    document.getElementById("quote-note").hidden = false;
   }
 </script>
 </body>

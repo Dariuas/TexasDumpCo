@@ -4,7 +4,7 @@ import { getUser } from "./_shared/auth";
 import { stripe } from "./_shared/stripe";
 import { siteUrl } from "./_shared/env";
 import { loadSettings, bool, num } from "./_shared/settings";
-import { buildQuote, DumpsterType, PromoRow } from "./_shared/pricing";
+import { buildQuote, DumpsterType, PromoRow, DurationTier, AddonSelection, DistanceZone } from "./_shared/pricing";
 import { typeAvailability } from "./_shared/availability";
 import { sendEmail, adminAlertHtml } from "./_shared/email";
 import { optionalEnv } from "./_shared/env";
@@ -27,6 +27,8 @@ interface Body {
   payment_choice?: "card_full" | "card_deposit" | "cash";
   agreement_signed_name?: string;
   photos?: Photo[];
+  addon_ids?: string[];
+  distance_zone?: string;
 }
 
 function addDays(date: string, days: number): string {
@@ -35,9 +37,14 @@ function addDays(date: string, days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-// Creates a PENDING booking + a Stripe Checkout session (card) or a
-// cash-pending booking awaiting admin approval. Totals are recomputed
-// server-side — client-sent prices are never trusted.
+// Creates a booking and either:
+//  - a Stripe Checkout session (card, priced service), or
+//  - a cash-pending booking awaiting admin approval, or
+//  - a quote-request (quote_only service, or a 35+ mile delivery) that is
+//    NEVER charged automatically — it lands in the admin for a staff member
+//    to price by phone, exactly as the source pricing guide operates for
+//    cleanouts, heavy material, and contractor work.
+// Totals are always recomputed server-side; client-sent prices are never trusted.
 export default withErrors(async (req: Request) => {
   if (req.method !== "POST") return badRequest("POST required");
   const body = await readJson<Body>(req);
@@ -47,7 +54,7 @@ export default withErrors(async (req: Request) => {
   // ---- validate required fields ----
   const required: (keyof Body)[] = [
     "type_id", "start_date", "customer_name", "customer_email", "customer_phone",
-    "delivery_address", "payment_choice", "agreement_signed_name",
+    "delivery_address", "agreement_signed_name",
   ];
   for (const f of required) if (!body[f]) return badRequest(`${f} is required`);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(body.start_date!)) return badRequest("start_date must be YYYY-MM-DD");
@@ -68,13 +75,36 @@ export default withErrors(async (req: Request) => {
   if (body.start_date! < earliest) return badRequest(`Earliest available date is ${earliest}`);
   if (body.start_date! > latest) return badRequest(`Bookings open only through ${latest}`);
 
+  // ---- duration tiers (if applicable) ----
+  let tiers: DurationTier[] = [];
+  if (t.pricing_mode === "duration_tiers") {
+    const { data } = await db.from("duration_price_tiers").select("days,price_cents,label").eq("type_id", t.id);
+    tiers = data ?? [];
+  }
   const rentalDays = Math.max(1, Number(body.rental_days ?? t.rental_days_included));
   const startDate = body.start_date!;
   const endDate = addDays(startDate, rentalDays - 1);
 
-  // ---- availability ----
-  const available = await typeAvailability(t.id, startDate, endDate);
-  if (available <= 0) return badRequest("That item is fully booked for the selected dates");
+  // ---- availability: only for physically-inventoried services (roll-offs) ----
+  if (t.uses_inventory) {
+    const available = await typeAvailability(t.id, startDate, endDate, true);
+    if (available <= 0) return badRequest("That item is fully booked for the selected dates");
+  }
+
+  // ---- add-ons ----
+  let addons: AddonSelection[] = [];
+  if (Array.isArray(body.addon_ids) && body.addon_ids.length) {
+    const { data } = await db.from("addon_items").select("id,name,price_cents").in("id", body.addon_ids).eq("active", true);
+    addons = (data ?? []).map((a) => ({ name: a.name, price_cents: a.price_cents, qty: 1 }));
+  }
+
+  // ---- distance zone ----
+  let distanceZone: DistanceZone | null = null;
+  const zones = (settings["distance_zones"] as DistanceZone[]) ?? [];
+  if (body.distance_zone) {
+    distanceZone = zones.find((z) => z.code === body.distance_zone) ?? null;
+    if (!distanceZone) return badRequest("Unknown delivery distance zone");
+  }
 
   // ---- promo ----
   let promo: PromoRow | null = null;
@@ -84,10 +114,11 @@ export default withErrors(async (req: Request) => {
   }
 
   // ---- authoritative quote ----
-  const quote = buildQuote(t, { rentalDays, promo }, settings);
+  const quote = buildQuote(t, { rentalDays, promo, tiers, addons, distanceZone }, settings);
 
   // ---- payment choice ----
-  const choice = body.payment_choice!;
+  const choice = quote.needs_quote ? null : body.payment_choice;
+  if (!quote.needs_quote && !choice) return badRequest("payment_choice is required");
   if (choice === "cash" && !bool(settings, "cash_accepted", false)) {
     return badRequest("Cash payment is not currently available");
   }
@@ -99,7 +130,7 @@ export default withErrors(async (req: Request) => {
   // ---- optional logged-in customer ----
   const user = await getUser(req);
 
-  // ---- create pending booking ----
+  // ---- create booking ----
   const { data: booking, error: bErr } = await db.from("bookings").insert({
     service: t.service,
     user_id: user?.id ?? null,
@@ -114,9 +145,12 @@ export default withErrors(async (req: Request) => {
     end_date: endDate,
     time_window: body.time_window ?? null,
     status: "pending",
-    payment_method: method,
-    payment_status: choice === "cash" ? "cash_pending" : "unpaid",
+    payment_method: quote.needs_quote ? "card" : method,
+    payment_status: quote.needs_quote ? "unpaid" : (choice === "cash" ? "cash_pending" : "unpaid"),
     subtotal_cents: quote.subtotal_cents,
+    addon_cents: quote.addon_cents,
+    distance_zone: distanceZone?.code ?? null,
+    distance_fee_cents: quote.distance_fee_cents,
     discount_cents: quote.discount_cents,
     tax_cents: quote.tax_cents,
     amount_total_cents: quote.amount_total_cents,
@@ -127,13 +161,21 @@ export default withErrors(async (req: Request) => {
     agreement_signed_name: body.agreement_signed_name,
     agreement_signed_at: new Date().toISOString(),
     agreement_signed_ip: req.headers.get("x-nf-client-connection-ip") ?? req.headers.get("x-forwarded-for"),
-    hold_expires_at: new Date(Date.now() + HOLD_MINUTES * 60_000).toISOString(),
+    flags: quote.needs_quote ? ["quote_requested"] : [],
+    hold_expires_at: quote.needs_quote ? null : new Date(Date.now() + HOLD_MINUTES * 60_000).toISOString(),
   }).select().single();
   if (bErr) throw new Error(bErr.message);
 
   // snapshot agreement version
   const { data: agr } = await db.from("agreement_templates").select("version").eq("active", true).maybeSingle();
   if (agr) await db.from("bookings").update({ agreement_version: agr.version }).eq("id", booking.id);
+
+  // attach add-ons (snapshot name/price so later catalog edits don't rewrite history)
+  if (addons.length) {
+    await db.from("booking_addons").insert(
+      addons.map((a) => ({ booking_id: booking.id, name: a.name, price_cents: a.price_cents, qty: a.qty })),
+    );
+  }
 
   // attach uploaded photos
   if (Array.isArray(body.photos) && body.photos.length) {
@@ -147,9 +189,24 @@ export default withErrors(async (req: Request) => {
     );
   }
 
+  const alertTo = optionalEnv("ADMIN_ALERT_EMAIL");
+
+  // ---- quote-request path: cleanouts, heavy material, contractor-style jobs,
+  // or any 35+ mile delivery. Never charged automatically. ----
+  if (quote.needs_quote) {
+    if (alertTo) {
+      await sendEmail(alertTo, `Quote requested — ${booking.reference}`,
+        adminAlertHtml({
+          reference: booking.reference, customer_name: booking.customer_name,
+          customer_phone: booking.customer_phone, typeName: t.name,
+          start_date: startDate, payment_method: "card", payment_status: "quote_requested",
+        }));
+    }
+    return json({ mode: "quote", reference: booking.reference, booking_id: booking.id });
+  }
+
   // ---- cash path: no charge, await approval ----
   if (choice === "cash") {
-    const alertTo = optionalEnv("ADMIN_ALERT_EMAIL");
     if (alertTo) {
       await sendEmail(alertTo, `Cash booking ${booking.reference} needs approval`,
         adminAlertHtml({

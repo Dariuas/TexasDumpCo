@@ -17,5 +17,6 @@ export default withErrors(async () => {
     bookingWindowDays: (settings["booking_window_days"] as number) ?? 120,
     taxRateBps: (settings["tax_rate_bps"] as number) ?? 0,
     depositPercent: (settings["deposit_percent"] as number) ?? 25,
+    distanceZones: settings["distance_zones"] ?? [],
   });
 });
