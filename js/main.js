@@ -1,6 +1,42 @@
 // Footer year
 document.getElementById('year').textContent = new Date().getFullYear();
 
+// Live pricing: overwrite the static fallback numbers in the markup with
+// current prices from the admin-editable catalog, so admin edits show up
+// here without a code deploy. Fails silently, leaving the static fallback.
+(async () => {
+  const els = document.querySelectorAll('[data-price-cat]');
+  if (!els.length) return;
+  try {
+    const res = await fetch('/api/catalog');
+    if (!res.ok) return;
+    const { types = [], tiers = [] } = await res.json();
+
+    const byCat = {};
+    types.forEach((t) => { (byCat[t.category] ??= []).push(t); });
+    Object.values(byCat).forEach((list) => list.sort((a, b) => a.sort_order - b.sort_order));
+
+    const tiersByType = {};
+    tiers.forEach((tr) => { (tiersByType[tr.type_id] ??= {})[tr.days] = tr.price_cents; });
+
+    const fmt = (cents) => `$${Math.round(cents / 100)}`;
+
+    els.forEach((el) => {
+      const list = byCat[el.dataset.priceCat];
+      if (!list || !list.length) return;
+      const idx = el.dataset.priceIdx !== undefined ? Number(el.dataset.priceIdx) : 0;
+      const type = list[idx];
+      if (!type) return;
+      const cents = el.dataset.priceDays !== undefined
+        ? tiersByType[type.id]?.[Number(el.dataset.priceDays)]
+        : type.base_price_cents;
+      if (cents != null) el.textContent = fmt(cents);
+    });
+  } catch {
+    // Catalog unreachable — keep the static fallback prices already in the HTML.
+  }
+})();
+
 // Mobile nav toggle
 const navToggle = document.getElementById('nav-toggle');
 const mainNav = document.getElementById('main-nav');
@@ -36,15 +72,15 @@ tabs.forEach(tab => {
 const quiz = document.getElementById('haul-quiz');
 if (quiz) {
   const RESULTS = {
-    'household|self':    { tab: 'residential', title: '15-Yard Roll-Off Rental', copy: "A self-load dumpster is the most affordable way to clear out household junk and furniture on your own schedule.", amigo: true },
+    'household|self':    { tab: 'residential', title: '14-Yard Roll-Off Rental', copy: "A self-load dumpster is the most affordable way to clear out household junk and furniture on your own schedule.", amigo: true },
     'household|crew':    { tab: 'junk',        title: 'Full-Service Junk Hauling', copy: "Skip the lifting — our crew loads and hauls your household junk and furniture away, start to finish.", amigo: false },
-    'renovation|self':   { tab: 'residential', title: '15-Yard Roll-Off Rental', copy: "A self-load dumpster on site lets your crew or family toss remodel debris as the project moves.", amigo: true },
+    'renovation|self':   { tab: 'residential', title: '14-Yard Roll-Off Rental', copy: "A self-load dumpster on site lets your crew or family toss remodel debris as the project moves.", amigo: true },
     'renovation|crew':   { tab: 'junk',        title: 'Full-Service Junk Hauling', copy: "Let our crew load and remove your remodel debris so you can stay focused on the project.", amigo: false },
     'yard|self':         { tab: 'yard',        title: 'Yard Waste Roll-Off Rental', copy: "Drop a dumpster on site and load brush, branches and yard debris on your own time.", amigo: true },
     'yard|crew':         { tab: 'yard',        title: 'Full-Service Brush Hauling', copy: "Our crew loads and hauls your yard waste and brush away — no dumpster required.", amigo: false },
     'heavy':              { tab: 'heavy',       title: 'Heavy Material Pricing', copy: "Concrete, dirt, brick and similar material is priced by weight, not container size — see rates below.", amigo: true },
     'contractor':         { tab: 'contractor',  title: 'Contractor & Repeat-Account Pricing', copy: "Volume rates for builders, roofers and property managers — pricing improves automatically with your monthly usage.", amigo: true },
-    'unsure':              { tab: 'residential', title: "Start Here — 15-Yard Roll-Off Rental", copy: "Our most popular option while you figure out the details. Call us and we'll help dial in the right fit.", amigo: true },
+    'unsure':              { tab: 'residential', title: "Start Here — 14-Yard Roll-Off Rental", copy: "Our most popular option while you figure out the details. Call us and we'll help dial in the right fit.", amigo: true },
   };
 
   const steps = quiz.querySelectorAll('.quiz-step');

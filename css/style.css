@@ -704,6 +704,11 @@ table.price-table{ width:100%; border-collapse:collapse; }
   border: 3px solid var(--black); border-radius:6px; overflow:hidden;
   box-shadow: 10px 10px 0 var(--yellow);
 }
+.spec-img{
+  margin: 22px 0; border: 3px solid var(--black); border-radius:6px; overflow:hidden;
+  box-shadow: 10px 10px 0 var(--yellow);
+}
+.spec-img img{ display:block; width:100%; height:auto; }
 
 /* ============================================================
    TESTIMONIALS

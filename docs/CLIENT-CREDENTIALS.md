@@ -18,6 +18,7 @@ We need three things from Google: a **service account key file**, the **calendar
 booking onto your Google Calendar.
 
 ### Step 1a — Create the service account key (one time)
+
 1. Go to **https://console.cloud.google.com** and sign in with the Google account that owns the business calendar.
 2. At the top, make sure a **project** is selected (any project is fine — if you see "Select a project," pick one or create one called "Texas Dumpster Co").
 3. In the search bar at the top, type **"Service Accounts"** and open it (under *IAM & Admin*).
@@ -30,10 +31,12 @@ booking onto your Google Calendar.
 7. A `.json` file downloads to your computer. ✅ **Send us this file** (it's the "service account key").
 
 ### Step 1b — Turn on the Calendar API (one time)
+
 1. In the same Google Cloud site, use the top search bar to find **"Google Calendar API"**.
 2. Open it and click **Enable** (if it already says "Manage," it's already on — you're good).
 
 ### Step 1c — Share your calendar with the service account
+
 1. Go to **https://calendar.google.com**.
 2. On the left, hover over the calendar you want bookings to appear on → click the **⋮** (three dots) → **Settings and sharing**.
 3. Scroll to **Share with specific people or groups** → **+ Add people and groups**.
@@ -41,6 +44,7 @@ booking onto your Google Calendar.
 5. Set permission to **"Make changes to events"** → **Send**.
 
 ### Step 1d — Get the Calendar ID
+
 1. Still in that calendar's **Settings and sharing** page, scroll to **Integrate calendar**.
 2. Copy the **Calendar ID**. For your main calendar it's usually your email (e.g. `texasdumpsterco@gmail.com`);
    for a secondary calendar it's a long string ending in `@group.calendar.google.com`.
@@ -53,6 +57,7 @@ booking onto your Google Calendar.
 We need your Stripe **keys** and a **webhook**. Start in **Test mode** so we can test safely before real money moves.
 
 ### Step 2a — API keys
+
 1. Go to **https://dashboard.stripe.com** and sign in.
 2. Top-right, make sure **Test mode** is toggled **ON** (you'll see a "Test mode" badge).
 3. In the left menu go to **Developers → API keys**.
@@ -60,7 +65,9 @@ We need your Stripe **keys** and a **webhook**. Start in **Test mode** so we can
 5. Next to **Secret key**, click **Reveal**, then copy it (starts with `sk_test_...`). ✅ **Send us this** (keep it private).
 
 ### Step 2b — Webhook (tells the site when a payment succeeds)
+
 > If this step feels technical, you can skip it and just tell us — we can set it up once the site is deployed.
+
 1. Go to **Developers → Webhooks → + Add endpoint**.
 2. Endpoint URL: we'll give you the exact address once the site is live — it will look like
    `https://texasdumpco.netlify.app/api/stripe-webhook`.
@@ -69,6 +76,7 @@ We need your Stripe **keys** and a **webhook**. Start in **Test mode** so we can
    (starts with `whsec_...`). ✅ **Send us this.**
 
 ### Later: going live
+
 When you're ready to take real payments, you'll repeat Steps 2a–2b with **Test mode OFF** (Live mode) and
 send us the `pk_live_...`, `sk_live_...`, and the live `whsec_...`. We'll swap them in.
 
