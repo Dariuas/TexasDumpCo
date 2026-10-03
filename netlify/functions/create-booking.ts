@@ -4,12 +4,14 @@ import { getUser } from "./_shared/auth";
 import { stripe } from "./_shared/stripe";
 import { siteUrl } from "./_shared/env";
 import { loadSettings, bool, num } from "./_shared/settings";
-import { buildQuote, DumpsterType, PromoRow, DurationTier, AddonSelection, DistanceZone } from "./_shared/pricing";
+import { buildQuote, contractorDiscountCents, DumpsterType, PromoRow, DurationTier, AddonSelection, DistanceZone } from "./_shared/pricing";
+import { checkChallenge, agreementHash } from "./_shared/agreement-verify";
 import { typeAvailability } from "./_shared/availability";
 import { sendEmail, adminAlertHtml } from "./_shared/email";
 import { optionalEnv } from "./_shared/env";
 
 const HOLD_MINUTES = 30;
+const esc = (s: string) => s.replace(/[&<>"]/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[m]!));
 
 interface Photo { path: string; kind?: string }
 interface Body {
@@ -29,7 +31,17 @@ interface Body {
   photos?: Photo[];
   addon_ids?: string[];
   distance_zone?: string;
+  referral_source?: string;
+  contractor_number?: string;
+  agreement_lang?: "en" | "es";
+  agreement_signature?: string;   // drawn signature, PNG data URL
+  agreement_ack?: string[];       // ids of acknowledgements the customer ticked
+  verify_token?: string;          // from agreement-verify-send
+  verify_code?: string;           // 6-digit code from the customer's email
 }
+
+// Every acknowledgement the form shows must come back ticked.
+const REQUIRED_ACKS = ["read", "weight", "prohibited", "access", "charges"];
 
 function addDays(date: string, days: number): string {
   const d = new Date(date + "T00:00:00Z");
@@ -58,6 +70,24 @@ export default withErrors(async (req: Request) => {
   ];
   for (const f of required) if (!body[f]) return badRequest(`${f} is required`);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(body.start_date!)) return badRequest("start_date must be YYYY-MM-DD");
+
+  // ---- agreement verification: typed name + drawn signature + ticked acknowledgements,
+  // email-code proof of ownership, and a stored tamper-evident hash. ----
+  const lang = body.agreement_lang === "es" ? "es" : "en";
+  if (body.agreement_signed_name!.trim().toLowerCase() !== body.customer_name!.trim().toLowerCase()) {
+    return badRequest("The name you sign with must match the customer name exactly");
+  }
+  const acks = Array.isArray(body.agreement_ack) ? body.agreement_ack : [];
+  if (!REQUIRED_ACKS.every((a) => acks.includes(a))) return badRequest("Please confirm every acknowledgement");
+  const sig = body.agreement_signature ?? "";
+  if (!/^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(sig) || sig.length < 800 || sig.length > 400_000) {
+    return badRequest("A drawn signature is required");
+  }
+  // Enforced whenever email can actually be delivered (RESEND_API_KEY set), so a
+  // missing mail config never locks every customer out of booking.
+  if (optionalEnv("RESEND_API_KEY") && !checkChallenge(body.customer_email!, body.verify_code ?? "", body.verify_token ?? "")) {
+    return badRequest("Email verification code is missing, wrong or expired");
+  }
 
   // ---- load type ----
   const { data: type, error: typeErr } = await db
@@ -113,8 +143,21 @@ export default withErrors(async (req: Request) => {
     promo = (data as PromoRow) ?? null;
   }
 
+  // ---- approved contractor (number + matching email, status approved) ----
+  let contractorId: string | null = null;
+  let contractorDiscount = 0;
+  if (body.contractor_number?.trim()) {
+    const { data: c } = await db.from("contractors").select("id,email,status")
+      .eq("contractor_number", body.contractor_number.trim().toUpperCase()).maybeSingle();
+    if (!c || c.status !== "approved" || c.email.toLowerCase() !== body.customer_email!.trim().toLowerCase()) {
+      return badRequest("Contractor number not recognized or not approved yet for this email");
+    }
+    contractorId = c.id;
+    contractorDiscount = contractorDiscountCents((t as any).category, rentalDays, tiers, settings);
+  }
+
   // ---- authoritative quote ----
-  const quote = buildQuote(t, { rentalDays, promo, tiers, addons, distanceZone }, settings);
+  const quote = buildQuote(t, { rentalDays, promo, tiers, addons, distanceZone, extraDiscountCents: contractorDiscount }, settings);
 
   // ---- payment choice ----
   const choice = quote.needs_quote ? null : body.payment_choice;
@@ -160,6 +203,13 @@ export default withErrors(async (req: Request) => {
     agreement_version: null,
     agreement_signed_name: body.agreement_signed_name,
     agreement_signed_at: new Date().toISOString(),
+    referral_source: body.referral_source?.slice(0, 80) ?? null,
+    contractor_id: contractorId,
+    agreement_lang: lang,
+    agreement_signature: sig,
+    agreement_ack: acks,
+    agreement_user_agent: req.headers.get("user-agent")?.slice(0, 300) ?? null,
+    agreement_verified_at: optionalEnv("RESEND_API_KEY") ? new Date().toISOString() : null,
     agreement_signed_ip: req.headers.get("x-nf-client-connection-ip") ?? req.headers.get("x-forwarded-for"),
     flags: quote.needs_quote ? ["quote_requested"] : [],
     hold_expires_at: quote.needs_quote ? null : new Date(Date.now() + HOLD_MINUTES * 60_000).toISOString(),
@@ -167,8 +217,23 @@ export default withErrors(async (req: Request) => {
   if (bErr) throw new Error(bErr.message);
 
   // snapshot agreement version
-  const { data: agr } = await db.from("agreement_templates").select("version").eq("active", true).maybeSingle();
-  if (agr) await db.from("bookings").update({ agreement_version: agr.version }).eq("id", booking.id);
+  const { data: agr } = await db.from("agreement_templates").select("version,body_html,body_html_es").eq("active", true).maybeSingle();
+  if (agr) {
+    const shown = lang === "es" && agr.body_html_es ? agr.body_html_es : agr.body_html;
+    const hash = agreementHash({ version: agr.version, lang, html: shown, name: body.agreement_signed_name!, email: body.customer_email! });
+    await db.from("bookings").update({ agreement_version: agr.version, agreement_body_hash: hash }).eq("id", booking.id);
+    await sendEmail(body.customer_email!,
+      lang === "es" ? `Copia de su contrato firmado — ${booking.reference}` : `Your signed rental agreement — ${booking.reference}`,
+      `<div style="font-family:Arial,sans-serif;max-width:640px;margin:auto">
+         <p>${lang === "es" ? "Gracias. Esta es su copia del contrato que firmó." : "Thanks. Here is your copy of the agreement you signed."}</p>
+         <p><strong>${lang === "es" ? "Firmado por" : "Signed by"}:</strong> ${esc(body.agreement_signed_name!)}<br>
+            <strong>${lang === "es" ? "Fecha" : "Date"}:</strong> ${new Date().toISOString()}<br>
+            <strong>${lang === "es" ? "Referencia" : "Reference"}:</strong> ${booking.reference} · v${agr.version}<br>
+            <strong>SHA-256:</strong> <span style="font-family:monospace;font-size:11px">${hash}</span></p>
+         <img src="${sig}" alt="signature" style="max-width:300px;border:1px solid #ccc">
+         <hr>${shown}
+       </div>`);
+  }
 
   // attach add-ons (snapshot name/price so later catalog edits don't rewrite history)
   if (addons.length) {

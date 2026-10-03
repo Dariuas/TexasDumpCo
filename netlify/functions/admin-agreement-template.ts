@@ -16,7 +16,7 @@ export default adminHandler("admin", async (req, user) => {
   }
   if (req.method !== "POST") return badRequest("GET or POST");
 
-  const body = await readJson<{ title?: string; body_html?: string }>(req);
+  const body = await readJson<{ title?: string; body_html?: string; title_es?: string; body_html_es?: string }>(req);
   if (!body.body_html) return badRequest("body_html required");
 
   const { data: latest } = await db
@@ -27,7 +27,7 @@ export default adminHandler("admin", async (req, user) => {
   await db.from("agreement_templates").update({ active: false }).eq("active", true);
   const { data, error } = await db
     .from("agreement_templates")
-    .insert({ version: nextVersion, title: body.title ?? "Rental Agreement", body_html: body.body_html, active: true })
+    .insert({ version: nextVersion, title: body.title ?? "Rental Agreement", body_html: body.body_html, title_es: body.title_es ?? null, body_html_es: body.body_html_es ?? null, active: true })
     .select().single();
   if (error) throw new Error(error.message);
 

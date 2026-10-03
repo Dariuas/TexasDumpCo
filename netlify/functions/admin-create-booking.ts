@@ -22,6 +22,8 @@ interface Body {
   payment_method?: "card" | "cash";
   payment_status?: "unpaid" | "paid" | "deposit_paid";
   amount_paid_cents?: number;
+  referral_source?: string;
+  contractor_number?: string;
 }
 
 // Enter a booking staff already priced by phone: contractor accounts, heavy
@@ -52,6 +54,14 @@ export default adminHandler("staff", async (req, user) => {
     paymentStatus === "paid" ? amountTotal :
     paymentStatus === "deposit_paid" ? Math.min(Number(body.amount_paid_cents ?? 0), amountTotal) : 0;
 
+  let contractorId: string | null = null;
+  if (body.contractor_number?.trim()) {
+    const { data: c } = await db.from("contractors").select("id,status")
+      .eq("contractor_number", body.contractor_number.trim().toUpperCase()).maybeSingle();
+    if (!c) return badRequest("Unknown contractor number");
+    contractorId = c.id;
+  }
+
   const { data: agr } = await db.from("agreement_templates").select("version").eq("active", true).maybeSingle();
 
   const { data: booking, error } = await db.from("bookings").insert({
@@ -76,6 +86,8 @@ export default adminHandler("staff", async (req, user) => {
     agreement_version: agr?.version ?? null,
     agreement_signed_name: `${body.customer_name} (phone agreement, entered by ${user.email})`,
     agreement_signed_at: new Date().toISOString(),
+    referral_source: body.referral_source?.slice(0, 80) ?? null,
+    contractor_id: contractorId,
     flags: ["staff_entered"],
   }).select().single();
   if (error) throw new Error(error.message);

@@ -12,6 +12,16 @@ const todayStr = () => new Date().toISOString().slice(0, 10);
 function toast(msg) { const t = el(`<div class="toast">${esc(msg)}</div>`); document.body.appendChild(t); setTimeout(() => t.remove(), 2600); }
 function badge(v) { return `<span class="badge b-${v}">${String(v).replace(/_/g, " ")}</span>`; }
 
+// Run an async click handler at most once at a time; disables the button while in flight
+// so fast double-clicks can't submit (and create) the same thing twice.
+function guarded(btn, fn) {
+  btn.addEventListener("click", async (e) => {
+    if (btn.dataset.busy) return;
+    btn.dataset.busy = "1"; btn.disabled = true;
+    try { await fn(e); } finally { delete btn.dataset.busy; btn.disabled = false; }
+  });
+}
+
 let sb, session, me = { role: "customer", email: "" };
 
 // ---------- auth ----------
@@ -77,6 +87,7 @@ function setupNav() {
       render(a.dataset.view);
     }));
   $("#menu-btn").addEventListener("click", () => nav.classList.toggle("open"));
+  $("#refresh").addEventListener("click", () => render(currentView()));
   $("#logout").addEventListener("click", async () => { await sb.auth.signOut(); location.reload(); });
   $("#chg-pass").addEventListener("click", async () => {
     const p1 = prompt("New password (min 8 characters):");
@@ -101,7 +112,8 @@ function render(view) {
 // ==================================================================
 views.dashboard = async (main) => {
   const today = new Date().toISOString().slice(0, 10);
-  const { bookings } = await authFetch("admin-bookings");
+  const [{ bookings }, { quotes: webQuotes }] = await Promise.all([authFetch("admin-bookings"), authFetch("admin-quotes")]);
+  const newWebQuotes = webQuotes.filter((q) => q.status === "new").length;
   const upcoming = bookings.filter((b) => b.status !== "canceled" && b.start_date >= today);
   const todays = bookings.filter((b) => b.start_date === today && b.status !== "canceled");
   const cashPending = bookings.filter((b) => b.payment_status === "cash_pending");
@@ -115,6 +127,7 @@ views.dashboard = async (main) => {
       <div class="kpi"><div class="n">${upcoming.length}</div><div class="l">Upcoming</div></div>
       <div class="kpi"><div class="n">${cashPending.length}</div><div class="l">Cash to approve</div></div>
       <div class="kpi"><div class="n">${quoteRequests.length}</div><div class="l">Quotes to price</div></div>
+      <div class="kpi"><div class="n">${newWebQuotes}</div><div class="l">New web quote requests</div></div>
     </div>
     ${quoteRequests.length ? `<h3>📞 Needs a phone quote (cleanout / heavy material / yard waste / 35+ mi)</h3>${bookingTable(quoteRequests)}` : ""}
     ${cashPending.length ? `<h3>⚠ Cash bookings awaiting approval</h3>${bookingTable(cashPending)}` : ""}
@@ -191,7 +204,8 @@ function wireRows(main) {
 
 // ---------- manual "phone quote" booking entry (contractor / heavy material / cleanouts) ----------
 async function openNewBookingForm(serviceFilter, onDone) {
-  const { types } = await authFetch("admin-inventory");
+  const [{ types }, cfg] = await Promise.all([authFetch("admin-inventory"), fetch("/api/public-config").then((r) => r.json())]);
+  const referralSources = cfg.referralSources || [];
   const list = (serviceFilter ? types.filter((t) => t.service === serviceFilter) : types).filter((t) => t.active);
   const drawer = $("#drawer"), backdrop = $("#drawer-backdrop");
   drawer.innerHTML = `
@@ -206,6 +220,10 @@ async function openNewBookingForm(serviceFilter, onDone) {
     <label>Email (optional)<input id="nb-email" type="email"></label>
     <label>Address<input id="nb-address"></label>
     <label>Notes<textarea id="nb-notes" rows="2"></textarea></label>
+    <div class="row two" style="display:grid;gap:10px;grid-template-columns:1fr 1fr;margin-top:8px">
+      <label>How did they hear about us?<select id="nb-source"><option value="">—</option>${referralSources.map((x) => `<option>${esc(x)}</option>`).join("")}</select></label>
+      <label>Contractor # (optional)<input id="nb-contractor" placeholder="TXC-XXXXX"></label>
+    </div>
     <label>Booking length (days)<input id="nb-days" type="number" min="1" value="1" style="max-width:100px"></label>
     <span class="field-label" style="display:block;margin-top:8px">Pick a start date <span class="hint">(availability for the selected type)</span></span>
     <div id="nb-calendar" style="margin-top:6px"></div>
@@ -242,7 +260,7 @@ async function openNewBookingForm(serviceFilter, onDone) {
     if ($("#nb-start").value) $("#nb-end").value = addDays($("#nb-start").value, days - 1);
   });
 
-  $("#nb-submit").addEventListener("click", async () => {
+  guarded($("#nb-submit"), async () => {
     if (!$("#nb-name").value.trim() || !$("#nb-phone").value.trim() || !$("#nb-address").value.trim() || !$("#nb-start").value || !$("#nb-amount").value) {
       return alert("Name, phone, address, start date and price are required.");
     }
@@ -254,6 +272,8 @@ async function openNewBookingForm(serviceFilter, onDone) {
         customer_phone: $("#nb-phone").value.trim(),
         delivery_address: $("#nb-address").value.trim(),
         notes: $("#nb-notes").value.trim(),
+        referral_source: $("#nb-source").value || undefined,
+        contractor_number: $("#nb-contractor").value.trim() || undefined,
         start_date: $("#nb-start").value,
         end_date: $("#nb-end").value || undefined,
         amount_total_cents: cents($("#nb-amount").value),
@@ -285,7 +305,13 @@ async function openBooking(id) {
       <dt>Payment</dt><dd>${badge(b.payment_method)} ${badge(b.payment_status)} · paid ${money(b.amount_paid_cents)} / ${money(b.amount_total_cents)}</dd>
       ${b.promo_codes ? `<dt>Promo</dt><dd>${esc(b.promo_codes.code)} (−${money(b.discount_cents)})</dd>` : ""}
       ${b.notes ? `<dt>Job notes</dt><dd>${esc(b.notes)}</dd>` : ""}
-      ${b.agreement_signed_name ? `<dt>Agreement</dt><dd>Signed by ${esc(b.agreement_signed_name)} (v${b.agreement_version || "?"})</dd>` : ""}
+      ${b.referral_source ? `<dt>Heard about us</dt><dd>${esc(b.referral_source)}</dd>` : ""}
+      ${b.contractor_id ? `<dt>Contractor</dt><dd>Approved contractor job</dd>` : ""}
+      ${b.agreement_signed_name ? `<dt>Agreement</dt><dd>Signed by ${esc(b.agreement_signed_name)} (v${b.agreement_version || "?"}, ${b.agreement_lang === "es" ? "Spanish" : "English"})<br>
+        <span class="muted">${b.agreement_signed_at ? new Date(b.agreement_signed_at).toLocaleString() : ""} · IP ${esc(b.agreement_signed_ip || "?")}</span><br>
+        ${b.agreement_verified_at ? `<span class="badge b-paid">email verified ${new Date(b.agreement_verified_at).toLocaleString()}</span>` : `<span class="badge b-unpaid">email not verified</span>`}
+        ${b.agreement_signature ? `<br><img src="${b.agreement_signature}" alt="signature" style="max-width:220px;border:1px solid var(--line);background:#fff;margin-top:6px">` : ""}
+        ${b.agreement_body_hash ? `<br><span class="muted" style="font-family:monospace;font-size:.68rem;word-break:break-all">SHA-256 ${esc(b.agreement_body_hash)}</span>` : ""}</dd>` : ""}
       ${b.flags && b.flags.length ? `<dt>Flags</dt><dd>${b.flags.map((f) => `<span class="flag">${esc(f)}</span>`).join(" ")}</dd>` : ""}
     </dl>
 
@@ -333,7 +359,7 @@ async function openBooking(id) {
   backdrop.addEventListener("click", close, { once: true });
 
   const refresh = () => { close(); openBooking(id); };
-  drawer.querySelectorAll("[data-act]").forEach((btn) => btn.addEventListener("click", async () => {
+  drawer.querySelectorAll("[data-act]").forEach((btn) => guarded(btn, async () => {
     const act = btn.dataset.act;
     try {
       if (act === "save") {
@@ -397,18 +423,24 @@ views.inventory = async (main) => {
     <h3>Types &amp; pricing ${isAdmin ? "" : "<span class='hint'>(read-only — admin edits pricing)</span>"}</h3>
     <div id="types"></div>
     ${isAdmin ? `<button class="btn btn-ghost btn-sm" id="add-type">+ Add type</button>` : ""}
-    <h3>Units (physical containers)</h3>
+    <details class="section-fold"><summary><h3>Units (physical containers)</h3></summary>
     <p class="hint">Types sharing the same "Equipment pool" label share physical containers for availability (e.g. Standard + Clean Green Waste roll-offs).</p>
-    <div id="units"></div>
-    <h3>Add-on items</h3>
+    <div id="units"></div></details>
+    <details class="section-fold" open><summary><h3>Add-on items</h3></summary>
     <p class="hint">Specialty items shown as checkboxes on junk-hauling bookings (mattress, appliance, access fees...).</p>
-    <div id="addons"></div>`;
+    <div id="addons"></div></details>`;
 
   const typeName = (id) => types.find((t) => t.id === id)?.name || "?";
 
   const renderTypes = () => {
-    $("#types").innerHTML = types.map((t) => `
-      <div class="form" data-id="${t.id}">
+    const SERVICE_TITLE = { dumpster: "Dumpster rentals", junk: "Junk hauling & crew jobs" };
+    const ordered = [...types].sort((a, b) => (a.service === b.service ? 0 : a.service === "dumpster" ? -1 : 1));
+    $("#types").innerHTML = ordered.map((t, idx) => `
+      ${idx === 0 || ordered[idx - 1].service !== t.service ? `<h4 class="group-head">${SERVICE_TITLE[t.service] || esc(t.service)}</h4>` : ""}
+      <details class="form type-card" data-id="${t.id}">
+        <summary><strong>${esc(t.name)}</strong>
+          <span class="muted">${t.pricing_mode === "quote_only" ? "starting at " : t.pricing_mode === "duration_tiers" ? "from " : ""}${money(t.base_price_cents)}</span>
+          <span class="badge b-${t.active ? "confirmed" : "unpaid"}">${t.active ? "active" : "hidden"}</span></summary>
         <div class="row three">
           <label>Name<input class="f-name" value="${esc(t.name)}" ${isAdmin ? "" : "disabled"}></label>
           <label>Service<select class="f-service" ${isAdmin ? "" : "disabled"}><option ${t.service === "dumpster" ? "selected" : ""}>dumpster</option><option ${t.service === "junk" ? "selected" : ""}>junk</option></select></label>
@@ -445,7 +477,7 @@ views.inventory = async (main) => {
             <label>Price ($)<input class="nt-price" type="number" step="0.01" placeholder="419.00"></label>
             <label>Label<input class="nt-label" placeholder="7 Days - Most Popular"></label>
           </div><div class="actions"><button class="btn btn-ghost btn-sm" data-add-tier="${t.id}">+ Add / update tier</button></div>` : ""}` : ""}
-      </div>`).join("");
+      </details>`).join("");
 
     if (isAdmin) $("#types").querySelectorAll("[data-save]").forEach((btn) => btn.addEventListener("click", async () => {
       const box = btn.closest(".form");
@@ -461,7 +493,7 @@ views.inventory = async (main) => {
         uses_inventory: box.querySelector(".f-inv").value === "true", equipment_pool: box.querySelector(".f-pool").value || null,
         description: box.querySelector(".f-desc").value,
       });
-      toast("Type saved"); render("inventory");
+      toast("Type saved"); sessionStorage.setItem("openType", box.dataset.id); render("inventory");
     }));
     if (isAdmin) $("#types").querySelectorAll("[data-add-tier]").forEach((btn) => btn.addEventListener("click", async () => {
       const typeId = btn.dataset.addTier;
@@ -484,6 +516,8 @@ views.inventory = async (main) => {
     });
   };
   renderTypes();
+  const reopen = sessionStorage.getItem("openType");
+  if (reopen) { sessionStorage.removeItem("openType"); const d = $(`.type-card[data-id="${reopen}"]`); if (d) { d.open = true; d.scrollIntoView({ block: "center" }); } }
 
   if (isAdmin) $("#add-type").addEventListener("click", async () => {
     const name = prompt("New type name:"); if (!name) return;
@@ -527,21 +561,25 @@ views.inventory = async (main) => {
   renderUnits();
 
   const renderAddons = () => {
-    $("#addons").innerHTML = `<div class="table-wrap"><table class="table">
-      <thead><tr><th>Name</th><th>Category</th><th>Price</th><th>Active</th><th></th></tr></thead><tbody>
-      ${addons.map((a) => `<tr>
-        <td><input class="a-name" data-id="${a.id}" value="${esc(a.name)}" ${isAdmin ? "" : "disabled"}></td>
-        <td><select class="a-cat" data-id="${a.id}" ${isAdmin ? "" : "disabled"}>${["specialty", "appliance", "access", "fee"].map((c) => `<option ${c === a.category ? "selected" : ""}>${c}</option>`).join("")}</select></td>
-        <td><input class="a-price" data-id="${a.id}" type="number" step="0.01" value="${(a.price_cents / 100).toFixed(2)}" style="width:90px" ${isAdmin ? "" : "disabled"}></td>
-        <td><select class="a-active" data-id="${a.id}" ${isAdmin ? "" : "disabled"}><option value="true" ${a.active ? "selected" : ""}>Yes</option><option value="false" ${!a.active ? "selected" : ""}>No</option></select></td>
-        <td>${isAdmin ? `<button class="btn btn-ghost btn-sm a-save" data-id="${a.id}">Save</button> <button class="btn btn-ghost btn-sm a-del" data-id="${a.id}">Del</button>` : ""}</td>
-      </tr>`).join("")}
-      </tbody></table></div>
-      ${isAdmin ? `<div class="form" style="margin-top:12px"><div class="row three">
+    const CAT_TITLE = { specialty: "Specialty items", appliance: "Appliances", access: "Access & carry", fee: "Fees" };
+    const cats = ["specialty", "appliance", "access", "fee"];
+    const card = (a) => `<div class="addon-card ${a.active ? "" : "off"}">
+        <input class="a-name" data-id="${a.id}" value="${esc(a.name)}" ${isAdmin ? "" : "disabled"} aria-label="Name">
+        <div class="addon-line">
+          <label>$<input class="a-price" data-id="${a.id}" type="number" step="0.01" value="${(a.price_cents / 100).toFixed(2)}" ${isAdmin ? "" : "disabled"}></label>
+          <select class="a-cat" data-id="${a.id}" ${isAdmin ? "" : "disabled"}>${cats.map((c) => `<option value="${c}" ${c === a.category ? "selected" : ""}>${CAT_TITLE[c]}</option>`).join("")}</select>
+          <select class="a-active" data-id="${a.id}" ${isAdmin ? "" : "disabled"}><option value="true" ${a.active ? "selected" : ""}>On</option><option value="false" ${!a.active ? "selected" : ""}>Off</option></select>
+        </div>
+        ${isAdmin ? `<div class="addon-actions"><button class="btn btn-primary btn-sm a-save" data-id="${a.id}">Save</button> <button class="btn btn-ghost btn-sm a-del" data-id="${a.id}">Delete</button></div>` : ""}
+      </div>`;
+    $("#addons").innerHTML = cats.filter((c) => addons.some((a) => a.category === c)).map((c) => `
+      <h4 class="group-head">${CAT_TITLE[c]}</h4>
+      <div class="addon-grid">${addons.filter((a) => a.category === c).map(card).join("")}</div>`).join("") +
+      (isAdmin ? `<div class="form" style="margin-top:12px"><div class="row three">
         <label>Name<input id="na-name"></label>
-        <label>Category<select id="na-cat">${["specialty", "appliance", "access", "fee"].map((c) => `<option>${c}</option>`).join("")}</select></label>
+        <label>Category<select id="na-cat">${cats.map((c) => `<option value="${c}">${CAT_TITLE[c]}</option>`).join("")}</select></label>
         <label>Price ($)<input id="na-price" type="number" step="0.01"></label>
-      </div><div class="actions"><button class="btn btn-primary btn-sm" id="na-add">+ Add add-on</button></div></div>` : ""}`;
+      </div><div class="actions"><button class="btn btn-primary btn-sm" id="na-add">+ Add add-on</button></div></div>` : "");
     if (!isAdmin) return;
     $("#addons").querySelectorAll(".a-save").forEach((b) => b.addEventListener("click", async () => {
       const id = b.dataset.id;
@@ -569,9 +607,36 @@ views.inventory = async (main) => {
 //  AVAILABILITY & BLACKOUTS
 // ==================================================================
 views.availability = async (main) => {
-  const [{ blackouts }, { types }] = await Promise.all([authFetch("admin-blackouts"), authFetch("admin-inventory")]);
+  const [{ blackouts: allBlackouts }, { types }, shiftRes] = await Promise.all([
+    authFetch("admin-blackouts"), authFetch("admin-inventory"),
+    me.role === "admin" ? authFetch("admin-shift-schedule") : Promise.resolve({ shift: null }),
+  ]);
+  const AUTO = "Owner on shift (auto)";
+  const blackouts = allBlackouts.filter((b) => b.reason !== AUTO);
+  const autoAll = allBlackouts.filter((b) => b.reason === AUTO && b.end_at.slice(0, 10) >= todayStr());
+  const autoNext = autoAll.slice(0, 6);
+  const shift = shiftRes.shift || { enabled: true, anchor_date: "2026-10-06", on_days: 2, off_days: 4 };
   main.innerHTML = `
     <h2>Availability &amp; Blackouts</h2>
+    ${me.role === "admin" ? `<div class="form"><h3>Owner shift schedule</h3>
+      <p class="hint">Shift days are blocked automatically for customers. Repeats forever on the pattern below. Change the first shift date any time his schedule moves, then save.</p>
+      <div class="row three">
+        <label>First shift day<input type="date" id="sh-anchor" value="${esc(shift.anchor_date)}"></label>
+        <label>Days on<input type="number" id="sh-on" min="1" value="${shift.on_days}"></label>
+        <label>Days off<input type="number" id="sh-off" min="0" value="${shift.off_days}"></label>
+      </div>
+      <div class="row two">
+        <label>Apply the pattern starting from<input type="date" id="sh-from" value="${todayStr()}" min="${todayStr()}"></label>
+        <label class="chk" style="align-self:end"><input type="checkbox" id="sh-enabled" ${shift.enabled ? "checked" : ""}> Block shift days</label>
+      </div>
+      <div class="actions"><button class="btn btn-primary btn-sm" id="sh-save">Save pattern &amp; rebuild from that date (12 months)</button></div>
+      <p class="hint">Rebuilding replaces shift blocks from that date forward, including edits you made to them. Earlier blocks are kept.</p>
+      <h3>Upcoming shift blocks</h3>
+      <p class="hint">Schedule moved for just one shift? Edit or remove that block — nothing else changes.</p>
+      <div class="table-wrap"><table class="table"><thead><tr><th>Start</th><th>End</th><th></th></tr></thead>
+      <tbody id="auto-rows">${autoAll.slice(0, 12).map((b) => `<tr data-id="${b.id}" style="cursor:default"><td><input type="date" class="ab-start" value="${b.start_at.slice(0, 10)}"></td><td><input type="date" class="ab-end" value="${b.end_at.slice(0, 10)}"></td><td class="nowrap"><button class="btn btn-primary btn-sm" data-ab-save>Save</button> <button class="btn btn-ghost btn-sm" data-ab-del>Remove</button></td></tr>`).join("") || '<tr><td colspan="3" class="muted">None.</td></tr>'}</tbody></table></div>
+      ${autoAll.length > 12 ? `<p class="hint">Showing the next 12 of ${autoAll.length}.</p>` : ""}
+    </div>` : ""}
     <p class="hint">Blackouts remove dates from customer availability — for holidays, full trucks, or maintenance windows.</p>
     <div class="form"><h3>Add blackout</h3>
       <div class="row three">
@@ -582,9 +647,26 @@ views.availability = async (main) => {
       <label>Reason<input id="bo-reason" placeholder="e.g. Thanksgiving"></label>
       <div class="actions"><button class="btn btn-primary btn-sm" id="bo-add">Add blackout</button></div>
     </div>
-    <h3>Current blackouts</h3>
+    <h3>Your blackout days</h3><p class="hint">One-off days you block yourself (shift days above are handled automatically).</p>
     <div class="table-wrap"><table class="table"><thead><tr><th>Start</th><th>End</th><th>Scope</th><th>Reason</th><th></th></tr></thead>
     <tbody>${blackouts.map((b) => `<tr><td>${b.start_at.slice(0, 10)}</td><td>${b.end_at.slice(0, 10)}</td><td>${b.scope === "all" ? "All" : (types.find((t) => t.id === b.type_id)?.name || "type")}</td><td>${esc(b.reason || "")}</td><td><button class="btn btn-ghost btn-sm" data-del="${b.id}">Del</button></td></tr>`).join("") || '<tr><td class="muted" colspan="5">None.</td></tr>'}</tbody></table></div>`;
+  if (me.role === "admin") guarded($("#sh-save"), async () => {
+    try {
+      const r = await post("admin-shift-schedule", { enabled: $("#sh-enabled").checked, anchor_date: $("#sh-anchor").value, on_days: +$("#sh-on").value, off_days: +$("#sh-off").value, from_date: $("#sh-from").value });
+      toast(`Shift days saved (${r.created} blocks)`); render("availability");
+    } catch (e) { alert(e.message); }
+  });
+  main.querySelectorAll("#auto-rows tr[data-id]").forEach((tr) => {
+    guarded(tr.querySelector("[data-ab-save]"), async () => {
+      const a = tr.querySelector(".ab-start").value, b = tr.querySelector(".ab-end").value;
+      if (!a || !b || b < a) return alert("Pick a start and an end on or after it.");
+      try { await post("admin-blackouts", { action: "update", id: tr.dataset.id, start_at: `${a}T00:00:00Z`, end_at: `${b}T23:59:59Z` }); toast("Shift block updated"); render("availability"); } catch (e) { alert(e.message); }
+    });
+    guarded(tr.querySelector("[data-ab-del]"), async () => {
+      if (!confirm("Remove this shift block? Customers will be able to book those days.")) return;
+      await post("admin-blackouts", { action: "delete", id: tr.dataset.id }); toast("Removed"); render("availability");
+    });
+  });
   $("#bo-add").addEventListener("click", async () => {
     const start = $("#bo-start").value, end = $("#bo-end").value;
     if (!start || !end) return alert("Pick start and end.");
@@ -643,18 +725,76 @@ views.agreement = async (main) => {
   const active = templates.find((t) => t.active) || templates[0] || { title: "Rental Agreement", body_html: "" };
   main.innerHTML = `
     <h2>Rental Agreement</h2>
-    <p class="hint">Saving publishes a new version. Existing signed bookings keep the version they agreed to.</p>
+    <p class="hint">Saving publishes a new version. Existing signed bookings keep the version (and language) they agreed to. Customers can switch between English and Spanish while signing.</p>
     <div class="form">
-      <label>Title<input id="a-title" value="${esc(active.title)}"></label>
-      <label>Body (HTML)<textarea id="a-body" rows="16">${esc(active.body_html)}</textarea></label>
-      <div class="actions"><button class="btn btn-primary btn-sm" id="a-save">Publish new version</button></div>
+      <div class="lang-tabs"><button class="btn btn-sm btn-primary" data-lang="en">English</button><button class="btn btn-sm btn-ghost" data-lang="es">Español</button></div>
+      <div data-pane="en">
+        <label>Title<input id="a-title" value="${esc(active.title)}"></label>
+        <span class="field-label">Agreement text</span>
+        ${wysiwygHtml("a-body-en")}
+      </div>
+      <div data-pane="es" hidden>
+        <label>Título<input id="a-title-es" value="${esc(active.title_es || "")}"></label>
+        <span class="field-label">Texto del contrato</span>
+        ${wysiwygHtml("a-body-es")}
+        <p class="hint">${active.body_html_es ? "If you change the English text, update this Spanish text to match before publishing." : "No Spanish version yet. Customers will see English only until you add one."}</p>
+      </div>
+      <div class="actions" style="margin-top:12px"><button class="btn btn-primary btn-sm" id="a-save">Publish new version</button></div>
       <p class="hint">Current active version: v${active.version || "—"}</p>
-    </div>
-    <h3>Preview</h3>
-    <div class="form" id="a-preview">${active.body_html}</div>`;
-  $("#a-body").addEventListener("input", () => { $("#a-preview").innerHTML = $("#a-body").value; });
-  $("#a-save").addEventListener("click", async () => { await post("admin-agreement-template", { title: $("#a-title").value, body_html: $("#a-body").value }); toast("Published"); render("agreement"); });
+    </div>`;
+  const en = wysiwygMount("a-body-en", active.body_html);
+  const es = wysiwygMount("a-body-es", active.body_html_es || "");
+  main.querySelectorAll("[data-lang]").forEach((btn) => btn.addEventListener("click", () => {
+    main.querySelectorAll("[data-lang]").forEach((x) => { x.classList.toggle("btn-primary", x === btn); x.classList.toggle("btn-ghost", x !== btn); });
+    main.querySelectorAll("[data-pane]").forEach((p) => (p.hidden = p.dataset.pane !== btn.dataset.lang));
+  }));
+  guarded($("#a-save"), async () => {
+    if (!en.getHtml().trim()) return alert("English text is required.");
+    await post("admin-agreement-template", {
+      title: $("#a-title").value, body_html: en.getHtml(),
+      title_es: $("#a-title-es").value || undefined, body_html_es: es.getHtml().trim() ? es.getHtml() : undefined,
+    });
+    toast("Published"); render("agreement");
+  });
 };
+
+// ---------- minimal WYSIWYG (contenteditable + toolbar; no dependencies) ----------
+function wysiwygHtml(id) {
+  const btn = (cmd, label, arg = "") => `<button type="button" class="btn btn-ghost btn-sm" data-cmd="${cmd}" data-arg="${arg}" title="${cmd}">${label}</button>`;
+  return `<div class="wysiwyg" id="${id}">
+    <div class="wysiwyg-bar">
+      ${btn("bold", "<b>B</b>")}${btn("italic", "<i>I</i>")}${btn("underline", "<u>U</u>")}
+      ${btn("formatBlock", "H3", "h3")}${btn("formatBlock", "Paragraph", "p")}
+      ${btn("insertUnorderedList", "• List")}${btn("insertOrderedList", "1. List")}
+      ${btn("createLink", "Link")}${btn("removeFormat", "Clear")}${btn("undo", "↶")}${btn("redo", "↷")}
+      <button type="button" class="btn btn-ghost btn-sm" data-src>&lt;/&gt; HTML</button>
+    </div>
+    <div class="wysiwyg-area" contenteditable="true"></div>
+    <textarea class="wysiwyg-src" rows="14" hidden></textarea>
+  </div>`;
+}
+function wysiwygMount(id, html) {
+  const root = document.getElementById(id);
+  const area = root.querySelector(".wysiwyg-area"), src = root.querySelector(".wysiwyg-src");
+  area.innerHTML = html || "";
+  let srcMode = false;
+  root.querySelectorAll("[data-cmd]").forEach((b) => b.addEventListener("mousedown", (e) => {
+    e.preventDefault(); // keep the selection in the editor
+    if (srcMode) return;
+    let arg = b.dataset.arg || null;
+    if (b.dataset.cmd === "createLink") { arg = prompt("Link address (https://…):"); if (!arg) return; }
+    document.execCommand(b.dataset.cmd, false, arg);
+  }));
+  root.querySelector("[data-src]").addEventListener("click", () => {
+    srcMode = !srcMode;
+    if (srcMode) src.value = area.innerHTML; else area.innerHTML = src.value;
+    src.hidden = !srcMode; area.hidden = srcMode;
+  });
+  return {
+    getHtml: () => (srcMode ? src.value : area.innerHTML),
+    setHtml: (h) => { area.innerHTML = h; src.value = h; },
+  };
+}
 
 // ==================================================================
 //  SETTINGS (admin)
@@ -705,11 +845,54 @@ views.settings = async (main) => {
       <div class="actions"><button class="btn btn-ghost btn-sm" id="s-contractor-save">Save</button></div>
     </div>
 
-    <h3>Judgment fee reference <span class="hint">(dry run, stairs, long carry... — apply manually)</span></h3>
+    <h3>Fee schedule <span class="hint">(shown to customers on the website under “Fees &amp; Policies”)</span></h3>
     <div class="form">
-      <textarea id="s-fees" rows="10">${esc(JSON.stringify(v("fee_schedule_reference", {}), null, 2))}</textarea>
-      <div class="actions"><button class="btn btn-ghost btn-sm" id="s-fees-save">Save</button></div>
+      <div id="fee-list"></div>
+      <div class="actions"><button class="btn btn-ghost btn-sm" id="fee-add" type="button">+ Add fee</button><button class="btn btn-primary btn-sm" id="fee-save" type="button">Save fee schedule</button></div>
+      <p class="hint">“From” shows as “from $X” on the website. Unit is optional (e.g. “ton”, “day”).</p>
+    </div>
+
+    <h3>“How did you hear about us?” choices</h3>
+    <div class="form">
+      <textarea id="s-sources" rows="6">${esc((v("referral_sources", []) || []).join("\n"))}</textarea>
+      <p class="hint">One per line. Shown as a dropdown in online booking and phone-quote entry.</p>
+      <div class="actions"><button class="btn btn-ghost btn-sm" id="s-sources-save">Save</button></div>
     </div>`;
+
+  // seed the editor from the saved list, or from the legacy reference values on first use
+  const FEE_LABELS = { dry_run_or_inaccessible_cents: "Dry run / blocked access", late_cancellation_lt24h_cents: "Late cancellation (under 24 hrs)", truck_already_dispatched_cents: "Cancel after truck dispatched", overfill_rearrangement_from_cents: "Overfill / rearrange load", long_carry_from_cents: "Long carry", stairs_from_cents: "Stairs", multi_floor_heavy_furniture_from_cents: "Multi-floor heavy furniture", same_day_priority_from_cents: "Same-day priority", after_hours_from_cents: "After-hours service" };
+  let fees = Array.isArray(s.fee_schedule) ? s.fee_schedule : Object.entries(v("fee_schedule_reference", {}) || {})
+    .filter(([k, x]) => typeof x === "number" && k.endsWith("_cents"))
+    .map(([k, x]) => ({ label: FEE_LABELS[k] || k.replace(/_/g, " "), amount_cents: x, from: k.includes("_from_"), unit: "", note: "" }));
+  const drawFees = () => {
+    $("#fee-list").innerHTML = fees.map((f, i) => `
+      <div class="fee-row" data-i="${i}">
+        <input class="fe-label" value="${esc(f.label)}" placeholder="Fee name">
+        <input class="fe-amt" type="number" step="0.01" value="${(f.amount_cents / 100).toFixed(2)}" title="Amount ($)">
+        <label class="chk"><input class="fe-from" type="checkbox" ${f.from ? "checked" : ""}> from</label>
+        <input class="fe-unit" value="${esc(f.unit || "")}" placeholder="unit (ton, day…)">
+        <input class="fe-note" value="${esc(f.note || "")}" placeholder="Details (optional)">
+        <button class="btn btn-ghost btn-sm fe-del" type="button">Remove</button>
+      </div>`).join("") || '<p class="muted">No fees yet.</p>';
+    $("#fee-list").querySelectorAll(".fe-del").forEach((b) => b.addEventListener("click", () => { syncFees(); fees.splice(+b.closest(".fee-row").dataset.i, 1); drawFees(); }));
+  };
+  const syncFees = () => {
+    fees = [...$("#fee-list").querySelectorAll(".fee-row")].map((r) => ({
+      label: r.querySelector(".fe-label").value.trim(), amount_cents: cents(r.querySelector(".fe-amt").value),
+      from: r.querySelector(".fe-from").checked, unit: r.querySelector(".fe-unit").value.trim(), note: r.querySelector(".fe-note").value.trim(),
+    }));
+  };
+  drawFees();
+  $("#fee-add").addEventListener("click", () => { syncFees(); fees.push({ label: "", amount_cents: 0, from: false, unit: "", note: "" }); drawFees(); });
+  guarded($("#fee-save"), async () => {
+    syncFees();
+    await post("admin-settings", { settings: { fee_schedule: fees.filter((f) => f.label) } });
+    toast("Fee schedule saved — live on the website");
+  });
+  guarded($("#s-sources-save"), async () => {
+    await post("admin-settings", { settings: { referral_sources: $("#s-sources").value.split("\n").map((x) => x.trim()).filter(Boolean) } });
+    toast("Saved");
+  });
 
   function zones() { return v("distance_zones", []) || []; }
 
@@ -743,11 +926,226 @@ views.settings = async (main) => {
       toast("Contractor rate card saved");
     } catch { alert("Invalid JSON."); }
   });
-  $("#s-fees-save").addEventListener("click", async () => {
-    try {
-      const parsed = JSON.parse($("#s-fees").value);
-      await post("admin-settings", { settings: { fee_schedule_reference: parsed } });
-      toast("Fee reference saved");
-    } catch { alert("Invalid JSON."); }
+};
+
+// ==================================================================
+//  CUSTOMERS (high-level tracker, derived from bookings)
+// ==================================================================
+views.customers = async (main) => {
+  const { customers } = await authFetch("admin-customers");
+  const total = customers.reduce((s, c) => s + c.spend_cents, 0);
+  const repeat = customers.filter((c) => c.bookings > 1).length;
+  main.innerHTML = `
+    <h2>Customers</h2>
+    <div class="kpi-row">
+      <div class="kpi"><div class="n">${customers.length}</div><div class="l">Customers</div></div>
+      <div class="kpi"><div class="n">${repeat}</div><div class="l">Repeat customers</div></div>
+      <div class="kpi"><div class="n">${customers.filter((c) => c.contractor).length}</div><div class="l">Contractors</div></div>
+      <div class="kpi"><div class="n">${money(total)}</div><div class="l">Collected</div></div>
+    </div>
+    <div class="toolbar"><input class="grow" id="cu-q" placeholder="Search name, email, phone"></div>
+    <div id="cu-list"></div>`;
+  const draw = () => {
+    const q = $("#cu-q").value.trim().toLowerCase();
+    const rows = customers.filter((c) => !q || [c.name, c.email, c.phone].some((x) => String(x || "").toLowerCase().includes(q)));
+    $("#cu-list").innerHTML = rows.length ? `<div class="table-wrap"><table class="table"><thead><tr><th>Customer</th><th>Contact</th><th>Jobs</th><th>Collected</th><th>First</th><th>Last</th><th>Heard about us</th></tr></thead><tbody>
+      ${rows.map((c) => `<tr data-q="${esc(c.email || c.phone)}"><td><strong>${esc(c.name)}</strong>${c.contractor ? ' <span class="badge b-confirmed">contractor</span>' : ""}${c.bookings > 1 ? ' <span class="badge b-scheduled">repeat</span>' : ""}</td>
+        <td>${esc(c.phone)}<br><span class="muted">${esc(c.email)}</span></td><td>${c.bookings}</td><td>${money(c.spend_cents)}</td>
+        <td>${esc(c.first_booking)}</td><td>${esc(c.last_booking)}</td><td>${esc(c.referral_source || "—")}</td></tr>`).join("")}
+    </tbody></table></div>` : `<div class="empty">No customers yet.</div>`;
+    // click a customer -> Bookings list filtered to them
+    $("#cu-list").querySelectorAll("tr[data-q]").forEach((tr) => tr.addEventListener("click", () => {
+      document.querySelector('#admin-nav a[data-view="bookings"]').click();
+      setTimeout(() => { const f = $("#f-q"); if (f) { f.value = tr.dataset.q; $("#f-go").click(); } }, 400);
+    }));
+  };
+  $("#cu-q").addEventListener("input", draw);
+  draw();
+};
+
+// ==================================================================
+//  CONTRACTORS (signups, approval, numbers)
+// ==================================================================
+views.contractors = async (main) => {
+  const { contractors } = await authFetch("admin-contractors");
+  const pending = contractors.filter((c) => c.status === "pending");
+  const stBadge = (st) => `<span class="badge b-${st === "approved" ? "confirmed" : st === "pending" ? "pending" : "canceled"}">${esc(st)}</span>`;
+  main.innerHTML = `
+    <h2>Contractors</h2>
+    <p class="hint">Contractors sign up on the website and get a number instantly. Contractor pricing only works after you approve them here. Verify license / EIN / website first.</p>
+    ${pending.length ? `<div class="notice">⚠ ${pending.length} waiting for approval</div>` : ""}
+    <div class="table-wrap"><table class="table"><thead><tr><th>Number</th><th>Company</th><th>Contact</th><th>Verification info</th><th>Status</th><th>Jobs</th><th>Spend</th><th></th></tr></thead><tbody>
+    ${contractors.map((c) => `<tr data-id="${c.id}" style="cursor:default">
+      <td><strong>${esc(c.contractor_number)}</strong></td><td>${esc(c.company_name)}</td>
+      <td>${esc(c.contact_name)}<br><span class="muted">${esc(c.phone)}<br>${esc(c.email)}</span></td>
+      <td>${esc(c.license_info || "—")}</td><td>${stBadge(c.status)}</td>
+      <td>${c.jobs}</td><td>${money(c.spend_cents)}</td>
+      <td class="nowrap">
+        ${c.status !== "approved" ? `<button class="btn btn-primary btn-sm" data-st="approved">Approve</button>` : `<button class="btn btn-ghost btn-sm" data-st="suspended">Suspend</button>`}
+        ${c.status === "pending" ? `<button class="btn btn-ghost btn-sm" data-st="rejected">Reject</button>` : ""}
+      </td></tr>`).join("") || '<tr><td colspan="8" class="muted">No contractors yet.</td></tr>'}
+    </tbody></table></div>`;
+  main.querySelectorAll("[data-st]").forEach((b) => guarded(b, async () => {
+    const id = b.closest("tr").dataset.id;
+    try { await post("admin-contractors", { id, status: b.dataset.st }); toast("Updated"); render("contractors"); } catch (e) { alert(e.message); }
+  }));
+};
+
+// ==================================================================
+//  REPORTS
+// ==================================================================
+views.reports = async (main) => {
+  const ymd = (d) => d.toISOString().slice(0, 10);
+  main.innerHTML = `
+    <h2>Reports</h2>
+    <div class="toolbar">
+      <label class="hint">From <input type="date" id="r-from" value="${ymd(new Date(Date.now() - 365 * 864e5))}"></label>
+      <label class="hint">To <input type="date" id="r-to" value="${ymd(new Date())}"></label>
+      <button class="btn btn-primary btn-sm" id="r-go">Run</button>
+      <button class="btn btn-ghost btn-sm" id="r-csv">Download CSV</button>
+    </div>
+    <div id="r-out"><p class="muted">Loading…</p></div>`;
+  let last;
+  const bars = (rows, title) => {
+    const max = Math.max(1, ...rows.map((r) => r.count));
+    return `<h3>${title}</h3><div class="table-wrap"><table class="table"><thead><tr><th>Name</th><th>Jobs</th><th></th><th>Booked $</th></tr></thead><tbody>
+      ${rows.map((r) => `<tr style="cursor:default"><td>${esc(r.label)}</td><td>${r.count}</td><td style="width:40%"><div class="bar" style="width:${Math.round((r.count / max) * 100)}%"></div></td><td>${money(r.revenue_cents)}</td></tr>`).join("") || '<tr><td colspan="4" class="muted">No data.</td></tr>'}
+    </tbody></table></div>`;
+  };
+  const run = async () => {
+    last = await authFetch(`admin-reports?from=${$("#r-from").value}&to=${$("#r-to").value}`);
+    $("#r-out").innerHTML = `
+      <div class="kpi-row"><div class="kpi"><div class="n">${last.total}</div><div class="l">Jobs</div></div>
+      <div class="kpi"><div class="n">${money(last.revenue_cents)}</div><div class="l">Booked revenue</div></div></div>
+      ${bars(last.by_source, "Where did you hear about us")}
+      ${bars(last.by_month, "Jobs by month")}
+      ${bars(last.by_type, "Jobs by service")}
+      ${bars(last.by_customer_kind, "Retail vs contractor")}`;
+  };
+  $("#r-go").addEventListener("click", () => run().catch((e) => alert(e.message)));
+  $("#r-csv").addEventListener("click", () => {
+    if (!last) return;
+    const q = (x) => `"${String(x).replace(/"/g, '""')}"`;
+    const lines = [["Report", "Label", "Jobs", "Booked $"].join(",")];
+    for (const [name, rows] of [["Source", last.by_source], ["Month", last.by_month], ["Service", last.by_type], ["Customer kind", last.by_customer_kind]]) {
+      rows.forEach((r) => lines.push([q(name), q(r.label), r.count, (r.revenue_cents / 100).toFixed(2)].join(",")));
+    }
+    const a = el(`<a download="txd-report-${last.from}-to-${last.to}.csv"></a>`);
+    a.href = URL.createObjectURL(new Blob([lines.join("\n")], { type: "text/csv" }));
+    a.click(); URL.revokeObjectURL(a.href);
   });
+  await run();
+};
+
+// ==================================================================
+//  SITE CAROUSEL (the ON SITE panel on the home page)
+// ==================================================================
+views.carousel = async (main) => {
+  const { slides } = await authFetch("admin-slides");
+  const today = todayStr();
+  const state = (s) => !s.active ? "hidden" : (s.ends_on && s.ends_on < today) ? "expired" : (s.starts_on && s.starts_on > today) ? "scheduled" : "live";
+  main.innerHTML = `
+    <h2>Site Carousel</h2>
+    <p class="hint">These slides rotate in the “On-site” panel at the top of the home page. Reorder with the arrows. For a temporary promo, set a “hide after” date and it disappears by itself.</p>
+    <div id="slides"></div>
+    <button class="btn btn-primary btn-sm" id="sl-add">+ Add slide</button>`;
+  const list = $("#slides");
+  const ids = () => [...list.querySelectorAll(".slide-card")].map((c) => c.dataset.id);
+  list.innerHTML = slides.map((s, i) => `
+    <details class="slide-card form" data-id="${s.id}" ${slides.length <= 3 ? "open" : ""}>
+      <summary><strong>${esc(s.title)}</strong> <span class="badge b-${state(s) === "live" ? "confirmed" : state(s) === "scheduled" ? "pending" : "unpaid"}">${state(s)}</span>
+        <span class="slide-order"><button class="btn btn-ghost btn-sm" data-move="-1" ${i === 0 ? "disabled" : ""} title="Move up">↑</button><button class="btn btn-ghost btn-sm" data-move="1" ${i === slides.length - 1 ? "disabled" : ""} title="Move down">↓</button></span></summary>
+      <div class="row two"><label>Title<input class="sl-title" value="${esc(s.title)}"></label><label>Badge (small yellow tag)<input class="sl-badge" value="${esc(s.badge || "")}" placeholder="e.g. Limited time"></label></div>
+      <label>Short description<textarea class="sl-body" rows="2">${esc(s.body || "")}</textarea></label>
+      <label>Checklist (one line each)<textarea class="sl-bullets" rows="4">${esc(s.bullets || "")}</textarea></label>
+      <div class="row three">
+        <label>Price label<input class="sl-plabel" value="${esc(s.price_label || "")}" placeholder="starting at"></label>
+        <label>Price text<input class="sl-ptext" value="${esc(s.price_text || "")}" placeholder="$419" ${s.live_price ? "disabled" : ""}></label>
+        <label class="chk" style="align-self:end"><input class="sl-live" type="checkbox" ${s.live_price ? "checked" : ""}> Use live 7-day price</label>
+      </div>
+      <div class="row two"><label>Button text<input class="sl-cta" value="${esc(s.cta_label || "")}"></label><label>Button link<input class="sl-url" value="${esc(s.cta_url || "")}" placeholder="/book or #pricing"></label></div>
+      <div class="row three">
+        <label>Show from<input class="sl-from" type="date" value="${esc(s.starts_on || "")}"></label>
+        <label>Hide after<input class="sl-to" type="date" value="${esc(s.ends_on || "")}"></label>
+        <label>Visible<select class="sl-active"><option value="true" ${s.active ? "selected" : ""}>Yes</option><option value="false" ${!s.active ? "selected" : ""}>No</option></select></label>
+      </div>
+      <label>Image (optional)<input class="sl-img" value="${esc(s.image_url || "")}" placeholder="paste a link, or upload below"></label>
+      <input class="sl-file" type="file" accept="image/jpeg,image/png,image/webp">
+      <div class="actions" style="margin-top:10px"><button class="btn btn-primary btn-sm" data-save>Save slide</button><button class="btn btn-ghost btn-sm" data-del>Delete</button></div>
+    </details>`).join("") || '<div class="empty">No slides yet — the home page shows its built-in 7-day card.</div>';
+
+  list.querySelectorAll(".sl-live").forEach((c) => c.addEventListener("change", () => { c.closest(".slide-card").querySelector(".sl-ptext").disabled = c.checked; }));
+  list.querySelectorAll("[data-move]").forEach((b) => b.addEventListener("click", async (e) => {
+    e.preventDefault();
+    const order = ids(), card = b.closest(".slide-card"), i = order.indexOf(card.dataset.id), j = i + +b.dataset.move;
+    [order[i], order[j]] = [order[j], order[i]];
+    await post("admin-slides", { action: "reorder", ids: order }); render("carousel");
+  }));
+  list.querySelectorAll(".slide-card").forEach((card) => {
+    const read = () => ({
+      id: card.dataset.id, title: card.querySelector(".sl-title").value.trim(), badge: card.querySelector(".sl-badge").value.trim(),
+      body: card.querySelector(".sl-body").value.trim(), bullets: card.querySelector(".sl-bullets").value.trim(),
+      price_label: card.querySelector(".sl-plabel").value.trim(), price_text: card.querySelector(".sl-ptext").value.trim(),
+      live_price: card.querySelector(".sl-live").checked, cta_label: card.querySelector(".sl-cta").value.trim(), cta_url: card.querySelector(".sl-url").value.trim(),
+      starts_on: card.querySelector(".sl-from").value, ends_on: card.querySelector(".sl-to").value,
+      active: card.querySelector(".sl-active").value === "true", image_url: card.querySelector(".sl-img").value.trim(),
+    });
+    guarded(card.querySelector("[data-save]"), async () => {
+      const s = read(); if (!s.title) return alert("Title is required.");
+      try { await post("admin-slides", { action: "update", ...s }); toast("Slide saved — live on the site"); render("carousel"); } catch (e) { alert(e.message); }
+    });
+    guarded(card.querySelector("[data-del]"), async () => {
+      if (!confirm("Delete this slide?")) return;
+      await post("admin-slides", { action: "delete", id: card.dataset.id }); render("carousel");
+    });
+    card.querySelector(".sl-file").addEventListener("change", async (e) => {
+      const file = e.target.files[0]; if (!file) return;
+      try {
+        const up = await post("admin-slides", { action: "upload_url", filename: file.name, content_type: file.type });
+        const { error } = await sb.storage.from("site-assets").uploadToSignedUrl(up.path, up.token, file);
+        if (error) throw error;
+        card.querySelector(".sl-img").value = up.public_url; toast("Image uploaded — click Save slide");
+      } catch (err) { alert(err.message || "Upload failed"); }
+    });
+  });
+  guarded($("#sl-add"), async () => {
+    await post("admin-slides", { action: "create", title: "New promo", badge: "Limited time", active: false });
+    toast("Slide added (hidden until you turn it on)"); render("carousel");
+  });
+};
+
+// ==================================================================
+//  QUOTE REQUESTS (homepage form, with customer photos)
+// ==================================================================
+views.quotes = async (main) => {
+  const { quotes } = await authFetch("admin-quotes");
+  const fresh = quotes.filter((q) => q.status === "new").length;
+  main.innerHTML = `
+    <h2>Quote Requests</h2>
+    <p class="hint">From the homepage quote form. Call or email the customer, then mark it contacted / booked. To turn one into a job use Bookings → + New Booking.</p>
+    ${fresh ? `<div class="notice">${fresh} new</div>` : ""}
+    <div id="q-list"></div>`;
+  $("#q-list").innerHTML = quotes.map((q) => `
+    <details class="form quote-card" data-id="${q.id}" ${q.status === "new" ? "open" : ""}>
+      <summary><strong>${esc(q.name)}</strong> <span class="muted">${new Date(q.created_at).toLocaleString()}</span>
+        <span class="badge b-${q.status === "new" ? "pending" : q.status === "booked" ? "confirmed" : "unpaid"}">${q.status}</span>
+        ${q.photos.length ? `<span class="muted">📷 ${q.photos.length}</span>` : ""}</summary>
+      <dl class="dl">
+        <dt>Phone</dt><dd><a href="tel:${esc(q.phone)}">${esc(q.phone)}</a></dd>
+        <dt>Email</dt><dd><a href="mailto:${esc(q.email)}">${esc(q.email)}</a></dd>
+        <dt>Service</dt><dd>${esc(q.service || "—")}${q.zip ? ` · ZIP ${esc(q.zip)}` : ""}</dd>
+        <dt>Heard about us</dt><dd>${esc(q.referral_source || "—")}</dd>
+        <dt>Details</dt><dd>${esc(q.details || "—")}</dd>
+      </dl>
+      ${q.photos.length ? `<div class="photo-grid">${q.photos.map((u) => `<a href="${u}" target="_blank" rel="noopener"><img src="${u}" alt="customer photo"></a>`).join("")}</div>` : ""}
+      <div class="row two" style="display:grid;gap:10px;grid-template-columns:1fr 2fr">
+        <label>Status<select class="q-status">${["new", "contacted", "booked", "closed"].map((s) => `<option ${s === q.status ? "selected" : ""}>${s}</option>`).join("")}</select></label>
+        <label>Notes<input class="q-notes" value="${esc(q.admin_notes || "")}"></label>
+      </div>
+      <div class="actions" style="margin-top:8px"><button class="btn btn-primary btn-sm" data-save>Save</button></div>
+    </details>`).join("") || '<div class="empty">No quote requests yet.</div>';
+  $("#q-list").querySelectorAll(".quote-card").forEach((card) => guarded(card.querySelector("[data-save]"), async () => {
+    await post("admin-quotes", { id: card.dataset.id, status: card.querySelector(".q-status").value, admin_notes: card.querySelector(".q-notes").value });
+    toast("Saved"); render("quotes");
+  }));
 };

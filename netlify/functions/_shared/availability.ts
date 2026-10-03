@@ -26,6 +26,16 @@ export async function typeAvailability(
     });
     if (error) throw new Error(error.message);
     avail = (data as number) ?? 0;
+  } else {
+    // Crew/truck jobs have no units, but blackouts (owner shifts, holidays) still apply.
+    const { count, error } = await db
+      .from("blackouts")
+      .select("id", { count: "exact", head: true })
+      .or(`scope.eq.all,type_id.eq.${typeId}`)
+      .lte("start_at", `${endDate}T23:59:59Z`)
+      .gte("end_at", `${startDate}T00:00:00Z`);
+    if (error) throw new Error(error.message);
+    if ((count ?? 0) > 0) return 0;
   }
 
   const settings = await loadSettings();

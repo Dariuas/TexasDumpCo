@@ -86,6 +86,18 @@
     <label class="field">Placement notes (gate code, where to drop, etc.)<textarea id="c-delnotes" rows="2"></textarea></label>
     <label class="field">Tell us about the job (what you're getting rid of)<textarea id="c-notes" rows="3"></textarea></label>
 
+    <div class="grid-2">
+      <label class="field">How did you hear about us? <span class="hint">(optional)</span>
+        <select id="c-source"><option value="">Select one</option></select>
+      </label>
+      <div class="field">
+        <label for="c-contractor">Contractor number <span class="hint">(optional)</span></label>
+        <div class="inline-row"><input id="c-contractor" placeholder="TXC-XXXXX" autocomplete="off"><button type="button" class="btn btn-ghost" id="apply-contractor">Apply</button></div>
+        <p class="promo-msg" id="contractor-msg"></p>
+        <p class="hint"><a href="/#pricing" target="_blank" rel="noopener">Need one? Sign up as a contractor</a> &mdash; approved contractors get contractor pricing.</p>
+      </div>
+    </div>
+
     <div class="field" id="addon-wrap" hidden>
       <span class="field-label">Anything special in the load? (adds to your price)</span>
       <div class="addon-list" id="addon-list"></div>
@@ -104,10 +116,37 @@
 
   <!-- STEP: agreement -->
   <section class="step" data-step="agreement" hidden>
-    <h1>Rental agreement</h1>
+    <div class="agr-head">
+      <h1 id="agr-title">Rental agreement</h1>
+      <div class="lang-toggle" id="lang-toggle" role="group" aria-label="Language">
+        <button type="button" class="active" data-lang="en">English</button>
+        <button type="button" data-lang="es">Espa&ntilde;ol</button>
+      </div>
+    </div>
     <div class="agreement-box" id="agreement-body">Loading…</div>
-    <label class="field">Type your full name to sign<input id="sign-name" autocomplete="name"></label>
-    <label class="check"><input type="checkbox" id="agree-check"> I have read and agree to the terms above.</label>
+
+    <fieldset class="acks" id="acks"></fieldset>
+
+    <label class="field"><span id="lbl-name">Type your full name to sign</span><input id="sign-name" autocomplete="name"></label>
+    <p class="hint" id="name-hint"></p>
+
+    <div class="field">
+      <span class="field-label" id="lbl-sig">Draw your signature</span>
+      <canvas id="sig-canvas" width="640" height="180" aria-label="Signature pad"></canvas>
+      <button type="button" class="btn btn-ghost btn-sm" id="sig-clear">Clear</button>
+    </div>
+
+    <div class="field" id="verify-wrap" hidden>
+      <span class="field-label" id="lbl-verify">Verify your email</span>
+      <p class="hint" id="verify-help"></p>
+      <div class="inline-row">
+        <button type="button" class="btn btn-ghost" id="send-code">Email me a code</button>
+        <input id="verify-code" inputmode="numeric" maxlength="6" placeholder="123456" autocomplete="one-time-code" disabled>
+        <button type="button" class="btn btn-ghost" id="check-code" disabled>Verify</button>
+      </div>
+      <p class="promo-msg" id="verify-msg"></p>
+    </div>
+
     <div class="nav-row">
       <button class="btn btn-ghost" data-back>Back</button>
       <button class="btn btn-primary" id="to-payment" disabled>Continue</button>

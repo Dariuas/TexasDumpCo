@@ -4,9 +4,8 @@ document.getElementById('year').textContent = new Date().getFullYear();
 // Live pricing: overwrite the static fallback numbers in the markup with
 // current prices from the admin-editable catalog, so admin edits show up
 // here without a code deploy. Fails silently, leaving the static fallback.
+let applyLivePrices = () => {};
 (async () => {
-  const els = document.querySelectorAll('[data-price-cat]');
-  if (!els.length) return;
   try {
     const res = await fetch('/api/catalog');
     if (!res.ok) return;
@@ -21,7 +20,7 @@ document.getElementById('year').textContent = new Date().getFullYear();
 
     const fmt = (cents) => `$${Math.round(cents / 100)}`;
 
-    els.forEach((el) => {
+    applyLivePrices = () => document.querySelectorAll('[data-price-cat]').forEach((el) => {
       const list = byCat[el.dataset.priceCat];
       if (!list || !list.length) return;
       const idx = el.dataset.priceIdx !== undefined ? Number(el.dataset.priceIdx) : 0;
@@ -32,8 +31,32 @@ document.getElementById('year').textContent = new Date().getFullYear();
         : type.base_price_cents;
       if (cents != null) el.textContent = fmt(cents);
     });
+    applyLivePrices();
   } catch {
     // Catalog unreachable — keep the static fallback prices already in the HTML.
+  }
+})();
+
+// Live contractor pricing: same fallback-overwrite pattern as above, sourced
+// from the admin-editable contractor rate card (Settings tab) instead of the
+// dumpster_types catalog, since contractor accounts are quote_only and not a
+// public catalog row.
+(async () => {
+  const els = document.querySelectorAll('[data-contractor-key]');
+  if (!els.length) return;
+  try {
+    const res = await fetch('/api/public-config');
+    if (!res.ok) return;
+    const { contractorRateCard = {} } = await res.json();
+    const fmt = (cents) => `$${Math.round(cents / 100)}`;
+    els.forEach((el) => {
+      const cents = contractorRateCard[el.dataset.contractorKey];
+      if (cents == null) return;
+      const suffix = el.textContent.trim().endsWith('each') ? ' each' : '';
+      el.textContent = fmt(cents) + suffix;
+    });
+  } catch {
+    // Config unreachable — keep the static fallback prices already in the HTML.
   }
 })();
 
@@ -143,23 +166,202 @@ if (quiz) {
   });
 }
 
-// Netlify form -> AJAX submit with inline success state
+// Quote form: photos upload straight to private storage (signed URL), then the request is
+// stored via /api/quote-request. If that fails we fall back to the original Netlify form post
+// so a request is never lost (photo links are included in the fallback).
 const form = document.getElementById('quote-form');
 if (form) {
-  form.addEventListener('submit', (e) => {
+  const fileInput = document.getElementById('quote-photos');
+  const thumbs = document.getElementById('quote-thumbs');
+  const photoMsg = document.getElementById('quote-photo-msg');
+  const submitBtn = form.querySelector('button[type=submit]');
+  const photos = []; // { path, name }
+  let uploading = 0;
+  let sbClient = null;
+  const MAX_PHOTOS = 6, MAX_BYTES = 10 * 1024 * 1024;
+
+  async function client() {
+    if (sbClient) return sbClient;
+    const cfg = await fetch('/api/public-config').then((r) => r.json());
+    const { createClient } = await import('https://esm.sh/@supabase/supabase-js@2.45.4');
+    sbClient = createClient(cfg.supabaseUrl, cfg.supabaseAnonKey);
+    return sbClient;
+  }
+
+  fileInput.addEventListener('change', async () => {
+    photoMsg.textContent = '';
+    for (const file of Array.from(fileInput.files || [])) {
+      if (photos.length + uploading >= MAX_PHOTOS) { photoMsg.textContent = `Up to ${MAX_PHOTOS} photos.`; break; }
+      if (file.size > MAX_BYTES) { photoMsg.textContent = `${file.name} is over 10 MB.`; continue; }
+      const thumb = document.createElement('div');
+      thumb.className = 'thumb uploading';
+      const img = document.createElement('img');
+      img.src = URL.createObjectURL(file);
+      thumb.appendChild(img);
+      thumbs.appendChild(thumb);
+      uploading++; submitBtn.disabled = true;
+      try {
+        const up = await fetch('/api/upload-url', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ filename: file.name, content_type: file.type }),
+        }).then(async (r) => { const d = await r.json(); if (!r.ok) throw new Error(d.error || 'Upload failed'); return d; });
+        const sb = await client();
+        const { error } = await sb.storage.from('booking-uploads').uploadToSignedUrl(up.path, up.token, file);
+        if (error) throw error;
+        photos.push({ path: up.path, name: file.name });
+        thumb.classList.remove('uploading');
+        const rm = document.createElement('button');
+        rm.type = 'button'; rm.textContent = '×'; rm.setAttribute('aria-label', 'Remove photo');
+        rm.addEventListener('click', () => { const i = photos.findIndex((p) => p.path === up.path); if (i > -1) photos.splice(i, 1); thumb.remove(); });
+        thumb.appendChild(rm);
+      } catch (err) {
+        thumb.remove(); photoMsg.textContent = `Could not upload ${file.name}: ${err.message || 'try again'}`;
+      } finally {
+        uploading--; if (!uploading) submitBtn.disabled = false;
+      }
+    }
+    fileInput.value = '';
+  });
+
+  form.addEventListener('submit', async (e) => {
     e.preventDefault();
-    const data = new FormData(form);
-    fetch('/', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams(data).toString(),
-    })
-      .then(() => {
-        document.getElementById('form-fields').style.display = 'none';
-        document.getElementById('form-success').classList.add('show');
-      })
-      .catch(() => {
-        form.submit();
+    if (uploading || submitBtn.disabled) return;
+    submitBtn.disabled = true;
+    const data = Object.fromEntries(new FormData(form));
+    const done = () => {
+      document.getElementById('form-fields').style.display = 'none';
+      document.getElementById('form-success').classList.add('show');
+    };
+    try {
+      const res = await fetch('/api/quote-request', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ...data, photos: photos.map((p) => p.path) }),
       });
+      if (!res.ok) throw new Error('quote-request failed');
+      done();
+    } catch {
+      // Fallback: original Netlify form capture.
+      const body = new URLSearchParams({ ...data, photo_count: String(photos.length), photo_paths: photos.map((p) => p.path).join(', ') });
+      fetch('/', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: body.toString() })
+        .then(done).catch(() => { submitBtn.disabled = false; alert('Could not send. Please call (512) 337-4340.'); });
+    }
   });
 }
+
+// ON SITE carousel: slides are admin-editable (Back Office -> Site Carousel). The static
+// 7-day card in the HTML stays as the fallback if the slides API is unreachable or empty.
+(async () => {
+  const root = document.getElementById('hero-carousel');
+  if (!root) return;
+  const track = document.getElementById('carousel-track');
+  const controls = document.getElementById('carousel-controls');
+  const dotsEl = document.getElementById('carousel-dots');
+  let slides = [];
+  try {
+    const res = await fetch('/api/site-slides');
+    if (!res.ok) return;
+    ({ slides = [] } = await res.json());
+  } catch { return; }
+  if (!slides.length) return;
+
+  const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[m]));
+  const safeUrl = (u) => (/^(https?:\/\/|\/|#|tel:|mailto:)/i.test(u || '') ? u : '#');
+  track.innerHTML = slides.map((s) => {
+    const bullets = (s.bullets || '').split('\n').map((l) => l.trim()).filter(Boolean);
+    const price = s.live_price
+      ? `<div class="hero-price"><span class="per">${esc(s.price_label || 'starting at')}</span><span class="amt" data-price-cat="roll_off_standard" data-price-days="7">$419</span></div>`
+      : s.price_text
+        ? `<div class="hero-price"><span class="per">${esc(s.price_label || '')}</span><span class="amt">${esc(s.price_text)}</span></div>`
+        : '';
+    return `<div class="carousel-slide" data-badge="${esc(s.badge || '')}">
+      ${s.image_url ? `<img class="slide-img" src="${esc(safeUrl(s.image_url))}" alt="">` : ''}
+      <h3>${esc(s.title)}</h3>
+      ${s.body ? `<p>${esc(s.body)}</p>` : ''}
+      ${price}
+      ${bullets.length ? `<ul class="hero-panel-list">${bullets.map((b) => `<li>${esc(b)}</li>`).join('')}</ul>` : ''}
+      ${s.cta_label ? `<a href="${esc(safeUrl(s.cta_url))}" class="btn btn-dark btn-block">${esc(s.cta_label)}</a>` : ''}
+    </div>`;
+  }).join('');
+  applyLivePrices();
+
+  const els = [...track.querySelectorAll('.carousel-slide')];
+  let i = 0, timer;
+  const show = (n) => {
+    i = (n + els.length) % els.length;
+    els.forEach((el, k) => el.classList.toggle('active', k === i));
+    dotsEl.querySelectorAll('.carousel-dot').forEach((d, k) => d.classList.toggle('active', k === i));
+    // The yellow ribbon on the panel shows the current slide's badge (hidden when blank).
+    const badge = els[i].dataset.badge;
+    root.dataset.badge = badge || '';
+    root.classList.toggle('no-badge', !badge);
+  };
+  const restart = () => { clearInterval(timer); if (els.length > 1) timer = setInterval(() => show(i + 1), 7000); };
+  if (els.length > 1) {
+    controls.hidden = false;
+    dotsEl.innerHTML = els.map((_, k) => `<button type="button" class="carousel-dot" aria-label="Slide ${k + 1}"></button>`).join('');
+    dotsEl.querySelectorAll('.carousel-dot').forEach((d, k) => d.addEventListener('click', () => { show(k); restart(); }));
+    document.getElementById('carousel-prev').addEventListener('click', () => { show(i - 1); restart(); });
+    document.getElementById('carousel-next').addEventListener('click', () => { show(i + 1); restart(); });
+    root.addEventListener('mouseenter', () => clearInterval(timer));
+    root.addEventListener('mouseleave', restart);
+    let x0 = null;
+    root.addEventListener('touchstart', (e) => { x0 = e.touches[0].clientX; }, { passive: true });
+    root.addEventListener('touchend', (e) => {
+      if (x0 == null) return;
+      const dx = e.changedTouches[0].clientX - x0;
+      if (Math.abs(dx) > 40) { show(i + (dx < 0 ? 1 : -1)); restart(); }
+      x0 = null;
+    });
+  }
+  show(0);
+  restart();
+})();
+
+// Fee schedule tab: rows come from the admin-editable fee schedule (Back Office -> Settings).
+(async () => {
+  const body = document.getElementById('fee-rows');
+  if (!body) return;
+  try {
+    const res = await fetch('/api/public-config');
+    if (!res.ok) return;
+    const { feeSchedule = [] } = await res.json();
+    if (!feeSchedule.length) return;
+    const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[m]));
+    body.innerHTML = feeSchedule.map((f) => {
+      const amt = `$${(f.amount_cents / 100).toFixed(f.amount_cents % 100 ? 2 : 0)}`;
+      return `<tr><td>${esc(f.label)}</td><td class="price">${f.from ? 'from ' : ''}${amt}${f.unit ? ' / ' + esc(f.unit) : ''}</td><td>${esc(f.note)}</td></tr>`;
+    }).join('');
+  } catch { /* keep static fallback rows */ }
+})();
+
+// Contractor signup: gets a contractor number immediately; pricing turns on after admin approval.
+(() => {
+  const form = document.getElementById('contractor-form');
+  if (!form) return;
+  const msg = document.getElementById('contractor-msg');
+  const btn = form.querySelector('button[type=submit]');
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (btn.disabled) return;
+    btn.disabled = true; msg.className = 'contractor-msg'; msg.textContent = 'Submitting…';
+    try {
+      const res = await fetch('/api/contractor-signup', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          company_name: document.getElementById('ct-company').value, contact_name: document.getElementById('ct-contact').value,
+          email: document.getElementById('ct-email').value, phone: document.getElementById('ct-phone').value,
+          license_info: document.getElementById('ct-info').value,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Something went wrong');
+      msg.className = 'contractor-msg ok';
+      const pending = data.status !== 'approved';
+      msg.innerHTML = `Your contractor number: <strong>${data.contractor_number}</strong><br>` +
+        (pending ? 'We are verifying your business. We will email you when contractor pricing is active.' : 'You are approved. Use this number when you book online.');
+      form.reset();
+    } catch (err) {
+      msg.className = 'contractor-msg err'; msg.textContent = err.message;
+    } finally { btn.disabled = false; }
+  });
+})();

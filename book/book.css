@@ -118,3 +118,15 @@ label.field{ font-family:var(--tag); font-weight:600; text-transform:uppercase; 
 .confirm-wrap{ max-width:560px; margin:60px auto; padding:0 20px; text-align:center; }
 .confirm-badge{ font-size:3rem; }
 .confirm-ref{ font-family:var(--tag); font-weight:700; font-size:1.4rem; letter-spacing:.04em; background:var(--yellow); display:inline-block; padding:6px 16px; border:2px solid var(--black); box-shadow:4px 4px 0 var(--black); margin:12px 0; }
+
+/* agreement: language toggle, acknowledgements, signature, verification */
+.agr-head{ display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+.lang-toggle{ display:inline-flex; border:2px solid var(--black); border-radius:var(--radius); overflow:hidden; }
+.lang-toggle button{ padding:8px 14px; background:var(--white); color:var(--black); border:0; font-family:var(--tag); font-weight:600; cursor:pointer; }
+.lang-toggle button.active{ background:var(--yellow); }
+.acks{ border:0; padding:0; margin:0 0 12px; }
+#sig-canvas{ width:100%; height:auto; aspect-ratio:640/180; background:#fff; border:2px solid var(--black); border-radius:var(--radius); touch-action:none; display:block; margin-bottom:6px; cursor:crosshair; }
+.inline-row{ display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+.inline-row input{ flex:1; min-width:120px; }
+.btn-sm{ padding:7px 12px; font-size:.8rem; }
+.hint{ font-size:.82rem; color:#5a554c; }

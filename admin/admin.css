@@ -97,3 +97,44 @@ body.admin{ background:var(--paper); }
   font-family:var(--body); text-transform:none; background:var(--white); color:var(--black);
 }
 .toast{ position:fixed; bottom:20px; left:50%; transform:translateX(-50%); background:var(--black); color:var(--yellow); padding:12px 20px; border-radius:var(--radius); z-index:60; font-family:var(--tag); font-weight:600; box-shadow:4px 4px 0 var(--yellow-deep); }
+
+/* Ghost buttons default to white text (built for dark hero); on the light admin
+   surface they were invisible. Dark text everywhere except the black top bar. */
+.admin-main .btn-ghost, .drawer .btn-ghost, .login-card .btn-ghost{ color:var(--black); border-color:var(--black); }
+.admin-main .btn-ghost:hover, .drawer .btn-ghost:hover{ background:var(--yellow-pale); }
+.admin-main, .drawer{ color:var(--black); }
+.drawer .muted, .admin-main .muted{ color:#5a554c; }
+.hint{ color:#5a554c; }
+.table td input, .table td select{ padding:6px; border:2px solid var(--black); border-radius:var(--radius); background:var(--white); color:var(--black); }
+
+/* wysiwyg editor */
+.lang-tabs{ display:flex; gap:8px; margin-bottom:12px; }
+.wysiwyg-bar{ display:flex; flex-wrap:wrap; gap:4px; padding:6px; background:var(--paper-dim); border:2px solid var(--black); border-bottom:0; }
+.wysiwyg-area{ min-height:320px; max-height:60vh; overflow:auto; padding:14px; background:#fff; color:var(--black); border:2px solid var(--black); line-height:1.5; }
+.wysiwyg-area h3{ margin:14px 0 6px; } .wysiwyg-area p{ margin:0 0 10px; } .wysiwyg-area ul, .wysiwyg-area ol{ margin:0 0 10px 22px; }
+.wysiwyg-src{ width:100%; font-family:monospace; font-size:.8rem; border:2px solid var(--black); padding:10px; }
+.field-label{ display:block; font-family:var(--tag); font-weight:600; text-transform:uppercase; letter-spacing:.05em; font-size:.72rem; margin:10px 0 4px; }
+/* fee schedule editor */
+.fee-row{ display:grid; grid-template-columns:2fr 90px auto 1fr 2fr auto; gap:8px; align-items:center; margin-bottom:8px; }
+@media(max-width:720px){ .fee-row{ grid-template-columns:1fr 1fr; } }
+.fee-row input:not([type=checkbox]){ margin-top:0; }
+/* slides, notices, report bars */
+.slide-card summary{ cursor:pointer; display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+.slide-order{ margin-left:auto; display:flex; gap:4px; }
+.slide-card[open] summary{ margin-bottom:12px; }
+.notice{ background:#ffe7b0; border:2px solid var(--black); padding:10px 14px; margin-bottom:14px; font-weight:600; }
+.bar{ height:12px; background:var(--yellow); border:1px solid var(--black); min-width:2px; }
+.nowrap{ white-space:nowrap; }
+
+/* inventory & pricing: collapsible cards, grouped add-ons */
+.group-head{ font-family:var(--tag); text-transform:uppercase; letter-spacing:.06em; font-size:.8rem; color:#5a554c; margin:20px 0 8px; border-bottom:2px solid var(--black); padding-bottom:4px; }
+.type-card summary, .section-fold > summary{ cursor:pointer; display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+.type-card[open] summary{ margin-bottom:14px; padding-bottom:10px; border-bottom:1px solid var(--line); }
+.section-fold{ margin-top:22px; }
+.section-fold > summary h3{ display:inline; margin:0; }
+.addon-grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(250px,1fr)); gap:10px; }
+.addon-card{ background:var(--white); border:2px solid var(--black); border-radius:var(--radius); padding:10px; display:flex; flex-direction:column; gap:8px; }
+.addon-card.off{ opacity:.6; }
+.addon-card input, .addon-card select{ width:100%; padding:7px; border:2px solid var(--black); border-radius:var(--radius); background:var(--white); color:var(--black); font-family:var(--body); }
+.addon-line{ display:grid; grid-template-columns:90px 1fr 70px; gap:6px; align-items:center; }
+.addon-line label{ display:flex; align-items:center; gap:3px; }

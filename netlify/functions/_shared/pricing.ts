@@ -131,6 +131,7 @@ export function buildQuote(
     tiers?: DurationTier[];
     addons?: AddonSelection[];
     distanceZone?: DistanceZone | null;
+    extraDiscountCents?: number; // e.g. approved-contractor rate
   },
   settings: Settings,
 ): Quote {
@@ -145,6 +146,7 @@ export function buildQuote(
     const check = validatePromo(opts.promo, subtotal, type.service);
     if (check.valid) discount = discountFor(opts.promo, subtotal);
   }
+  discount = Math.min(subtotal, discount + Math.max(0, opts.extraDiscountCents ?? 0));
 
   const distanceFee = opts.distanceZone?.fee_cents ?? 0;
   const taxable = Math.max(0, subtotal - discount) + distanceFee;
@@ -169,4 +171,27 @@ export function buildQuote(
     extra_days: extraDays,
     needs_quote: needsQuote,
   };
+}
+
+// Approved-contractor discount against the public price, from the admin-editable
+// contractor rate card. 7-day rentals use the card's 7-day rate, 28-day standard
+// rentals use the jobsite rate, and any other length gets the same dollars-off as
+// the 7-day rental so longer/shorter rentals stay consistent. Only roll-off
+// categories with a card entry are discounted; everything else returns 0.
+export function contractorDiscountCents(
+  category: string | null | undefined,
+  rentalDays: number,
+  tiers: DurationTier[],
+  settings: Settings,
+): number {
+  const card = (settings["contractor_rate_card"] ?? {}) as Record<string, number>;
+  const key7 = category === "roll_off_green" ? "green_7day_cents" : category === "roll_off_standard" ? "standard_7day_cents" : null;
+  if (!key7 || typeof card[key7] !== "number") return 0;
+  const priceAt = (d: number) => tiers.find((t) => t.days === d)?.price_cents;
+  if (category === "roll_off_standard" && rentalDays === 28 && typeof card["jobsite_28day_cents"] === "number") {
+    const p28 = priceAt(28);
+    if (p28 != null) return Math.max(0, p28 - card["jobsite_28day_cents"]);
+  }
+  const p7 = priceAt(7);
+  return p7 == null ? 0 : Math.max(0, p7 - card[key7]);
 }

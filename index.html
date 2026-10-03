@@ -33,7 +33,7 @@
         <small>Call Now</small>
         <strong>(512) 337-4340</strong>
       </a>
-      <a href="#book" class="btn btn-primary">Get A Quote</a>
+      <a href="/book" class="btn btn-primary">Book Online</a>
       <button class="nav-toggle" id="nav-toggle" aria-label="Toggle menu"><span></span></button>
     </div>
   </div>
@@ -56,7 +56,7 @@
       <div class="hero-copy">
         <div class="hero-kicker eyebrow on-dark">Roll-Off Dumpsters &amp; Junk Hauling</div>
         <h1>Clear it out. <em>Texas tough.</em></h1>
-        <p class="hero-sub">Book a roll-off dumpster or a full-service haul-away crew in one call. One flat starting price, delivered on your schedule — no surprise fees buried in fine print.</p>
+        <p class="hero-sub">Book a roll-off dumpster or a full-service haul-away crew in one call. One starting price, delivered on your schedule — no surprise fees buried in fine print.</p>
         <div class="hero-actions">
           <a href="tel:15123374340" class="btn btn-primary">Call (512) 337-4340</a>
           <a href="#pricing" class="btn btn-ghost">See Pricing</a>
@@ -76,17 +76,26 @@
           </div>
         </div>
       </div>
-      <div class="hero-panel">
-        <h3>7-Day Rental</h3>
-        <p>Our most popular option for residential cleanouts and remodels.</p>
-        <div class="hero-price"><span class="amt" data-price-cat="roll_off_standard" data-price-days="7">$429</span><span class="per">flat rate</span></div>
-        <ul class="hero-panel-list">
-          <li>14-yard roll-off dumpster</li>
-          <li>Delivery + pickup included</li>
-          <li>Up to 1.5 tons (3,000 lb) disposal</li>
-          <li>0&ndash;15 mile delivery zone included</li>
-        </ul>
-        <a href="#pricing" class="btn btn-dark btn-block">View All Pricing</a>
+      <div class="hero-panel" id="hero-carousel" data-badge="On-site in 24 hrs">
+        <div class="carousel-track" id="carousel-track">
+          <div class="carousel-slide active">
+            <h3>7-Day Rental</h3>
+            <p>Our most popular option for residential cleanouts and remodels.</p>
+            <div class="hero-price"><span class="per">starting at</span><span class="amt" data-price-cat="roll_off_standard" data-price-days="7">$419</span></div>
+            <ul class="hero-panel-list">
+              <li>14-yard roll-off dumpster</li>
+              <li>Delivery + pickup included</li>
+              <li>Up to 1.5 tons (3,000 lb) disposal</li>
+              <li>0&ndash;15 mile delivery zone included</li>
+            </ul>
+            <a href="#pricing" class="btn btn-dark btn-block">View All Pricing</a>
+          </div>
+        </div>
+        <div class="carousel-controls" id="carousel-controls" hidden>
+          <button type="button" class="carousel-btn" id="carousel-prev" aria-label="Previous">&#8249;</button>
+          <div class="carousel-dots" id="carousel-dots"></div>
+          <button type="button" class="carousel-btn" id="carousel-next" aria-label="Next">&#8250;</button>
+        </div>
       </div>
     </div>
   </div>
@@ -131,7 +140,7 @@
           <p id="quiz-result-copy"></p>
           <div class="quiz-result-actions">
             <a href="#pricing" class="btn btn-primary" id="quiz-result-cta">See Pricing</a>
-            <a href="#book" class="btn btn-ghost">Request A Quote</a>
+            <a href="/book" class="btn btn-ghost">Book Online</a>
           </div>
 
           <div class="quiz-amigo" id="quiz-amigo" hidden>
@@ -216,6 +225,7 @@
       <button class="pricing-tab" role="tab" data-tab="junk" aria-selected="false"><span class="n">3</span>Junk Hauling</button>
       <button class="pricing-tab" role="tab" data-tab="yard" aria-selected="false"><span class="n">4</span>Yard Waste &amp; Brush</button>
       <button class="pricing-tab" role="tab" data-tab="heavy" aria-selected="false"><span class="n">5</span>Heavy Materials</button>
+      <button class="pricing-tab" role="tab" data-tab="fees" aria-selected="false"><span class="n">6</span>Fees &amp; Policies</button>
     </div>
 
     <!-- TAB 1: RESIDENTIAL ROLL-OFF -->
@@ -232,7 +242,7 @@
           <tbody>
             <tr><td>1 Day &mdash; Quick Load</td><td class="price" data-price-cat="roll_off_standard" data-price-days="1">$349</td><td>1.5 tons</td><td>Fast cleanout / one-day project</td></tr>
             <tr><td>3 Days</td><td class="price" data-price-cat="roll_off_standard" data-price-days="3">$379</td><td>1.5 tons</td><td>Garage, room, small remodel</td></tr>
-            <tr class="popular"><td>7 Days <span class="badge-pop">Most Popular</span></td><td class="price" data-price-cat="roll_off_standard" data-price-days="7">$429</td><td>1.5 tons</td><td>Typical cleanout / remodel</td></tr>
+            <tr class="popular"><td>7 Days <span class="badge-pop">Most Popular</span></td><td class="price" data-price-cat="roll_off_standard" data-price-days="7">$419</td><td>1.5 tons</td><td>Typical cleanout / remodel</td></tr>
             <tr><td>14 Days</td><td class="price" data-price-cat="roll_off_standard" data-price-days="14">$549</td><td>1.5 tons</td><td>Longer renovation / estate cleanout</td></tr>
             <tr><td>28 Days</td><td class="price" data-price-cat="roll_off_standard" data-price-days="28">$749</td><td>1.5 tons</td><td>Extended residential project</td></tr>
           </tbody>
@@ -259,17 +269,34 @@
         <table class="price-table">
           <thead><tr><th>Program</th><th>Starting Price</th><th>Included</th><th>Requirement</th></tr></thead>
           <tbody>
-            <tr><td>Standard Contractor &mdash; 7 Day</td><td class="price">$399</td><td>1.5 tons</td><td>2&ndash;3 rentals/mo or established account</td></tr>
-            <tr><td>Volume &mdash; 4&ndash;7 Rentals/Mo</td><td class="price">$389 each</td><td>1.5 tons</td><td>Consistent monthly volume</td></tr>
-            <tr><td>Volume &mdash; 8+ Rentals/Mo</td><td class="price">$379 each</td><td>1.5 tons</td><td>High-volume account</td></tr>
-            <tr><td>28-Day Jobsite Rental</td><td class="price">$699</td><td>1.5 tons</td><td>Container remains on one site</td></tr>
-            <tr><td>Dump &amp; Return / Swap</td><td class="price">$299</td><td>1.5 tons</td><td>Same site; empty and return container</td></tr>
+            <tr><td>Standard Contractor &mdash; 7 Day</td><td class="price" data-contractor-key="standard_7day_cents">$389</td><td>1.5 tons</td><td>2&ndash;3 rentals/mo or established account</td></tr>
+            <tr><td>Volume &mdash; 4&ndash;7 Rentals/Mo</td><td class="price" data-contractor-key="volume_4_7_cents">$379 each</td><td>1.5 tons</td><td>Consistent monthly volume</td></tr>
+            <tr><td>Volume &mdash; 8+ Rentals/Mo</td><td class="price" data-contractor-key="volume_8plus_cents">$369 each</td><td>1.5 tons</td><td>High-volume account</td></tr>
+            <tr><td>28-Day Jobsite Rental</td><td class="price" data-contractor-key="jobsite_28day_cents">$689</td><td>1.5 tons</td><td>Container remains on one site</td></tr>
+            <tr><td>Dump &amp; Return / Swap</td><td class="price" data-contractor-key="dump_and_return_cents">$299</td><td>1.5 tons</td><td>Same site; empty and return container</td></tr>
           </tbody>
         </table>
       </div>
       <div class="pricing-notes">
-        <div class="pricing-note"><h4>Account setup</h4><p>Card on file or an approved billing arrangement. New contractors start at $399/7-day; volume rates are earned by actual repeat usage.</p></div>
+        <div class="pricing-note"><h4>Account setup</h4><p>Card on file or an approved billing arrangement. New contractors start at $389/7-day; volume rates are earned by actual repeat usage.</p></div>
         <div class="pricing-note"><h4>Heavy material exception</h4><p>Concrete, brick, dirt, rock, gravel, tile and shingles use weight-based Heavy Material pricing (tab 5) instead of the standard rental + overage rate.</p></div>
+      </div>
+      <div class="contractor-signup" id="contractor-signup">
+        <h4>Get your contractor number</h4>
+        <p>No account or password needed. Sign up, get your number right away, and we verify your business. Once approved, enter the number when you book online to get contractor pricing.</p>
+        <form id="contractor-form" class="contractor-form">
+          <div class="form-row">
+            <div class="field"><label for="ct-company">Company name</label><input id="ct-company" required></div>
+            <div class="field"><label for="ct-contact">Your name</label><input id="ct-contact" required></div>
+          </div>
+          <div class="form-row">
+            <div class="field"><label for="ct-email">Email</label><input id="ct-email" type="email" required></div>
+            <div class="field"><label for="ct-phone">Phone</label><input id="ct-phone" type="tel" required></div>
+          </div>
+          <div class="field"><label for="ct-info">License, EIN or website <span class="hint">(helps us approve you faster)</span></label><input id="ct-info"></div>
+          <button type="submit" class="btn btn-dark">Get my contractor number</button>
+          <p class="contractor-msg" id="contractor-msg" role="status"></p>
+        </form>
       </div>
     </div>
 
@@ -350,6 +377,27 @@
       </div>
     </div>
 
+    <!-- TAB 6: FEE SCHEDULE (rows come from the admin-editable fee schedule) -->
+    <div class="pricing-panel" data-panel="fees">
+      <div class="pricing-panel-head">
+        <div>
+          <h3>Fee Schedule</h3>
+          <p>Your quoted price covers delivery, pickup and the included weight. These fees only apply in the situations listed, and we always tell you before they are charged.</p>
+        </div>
+      </div>
+      <div class="price-table-wrap">
+        <table class="price-table">
+          <thead><tr><th>Situation</th><th>Fee</th><th>Details</th></tr></thead>
+          <tbody id="fee-rows">
+            <tr><td>Dry run / blocked access</td><td class="price">$125</td><td></td></tr>
+            <tr><td>Overfill / rearrange load</td><td class="price">from $75</td><td></td></tr>
+            <tr><td>Debris overage</td><td class="price">$90 / ton</td><td>Over the 1.5 ton included weight. Heavy materials are priced separately.</td></tr>
+            <tr><td>Extra day</td><td class="price">$15 / day</td><td></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
     <p class="pricing-footnote">All prices above are starting rates for the standard 0&ndash;15 mile service zone and can change based on material type, actual weight, distance, site access and special handling. We always confirm final pricing with you before loading begins.</p>
   </div>
 </section>
@@ -365,7 +413,7 @@
     <div class="steps">
       <div class="step">
         <div class="step-num">01</div>
-        <h3>Call or Request a Quote</h3>
+        <h3>Request a Quote or Book Today</h3>
         <p>Tell us what you're clearing out and we'll point you to the right pricing tier.</p>
       </div>
       <div class="step">
@@ -395,11 +443,11 @@
       <h2>Built for straight answers</h2>
     </div>
     <div class="why-grid">
-      <div class="why-item"><h3><span class="ico">&#9733;</span>Locally Owned</h3><p>We're your neighbors, not a national call center. We care about the communities we serve.</p></div>
-      <div class="why-item"><h3><span class="ico">$</span>Upfront Pricing</h3><p>What we quote is what you pay. No hidden fees buried in the fine print.</p></div>
-      <div class="why-item"><h3><span class="ico">&#9201;</span>Fast &amp; Reliable</h3><p>We show up on time and get the job done right, every time.</p></div>
+      <div class="why-item"><h3><span class="ico">&#9733;</span>Helpful Local Service</h3><p>We're your neighbors, not a national call center. We care about the communities we serve.</p></div>
+      <div class="why-item"><h3><span class="ico">$</span>Clear Upfront Pricing</h3><p>What we quote is what you pay. See exactly what your rental includes before you book.</p></div>
+      <div class="why-item"><h3><span class="ico">&#9201;</span>Reliable Delivery</h3><p>We show up on time and get the job done right, every time.</p></div>
       <div class="why-item"><h3><span class="ico">&#128170;</span>Texas-Tough Equipment</h3><p>Clean, well-maintained containers and trucks built for big jobs.</p></div>
-      <div class="why-item"><h3><span class="ico">&#9851;</span>Responsible Disposal</h3><p>We remove and dispose of everything the right way, every load.</p></div>
+      <div class="why-item"><h3><span class="ico">&#9851;</span>Licensed &amp; Insured</h3><p>Fully insured, and we dispose of everything the right way, every load.</p></div>
       <div class="why-item"><h3><span class="ico">&#9989;</span>Customer First</h3><p>We're not finished until you're satisfied. That's the promise.</p></div>
     </div>
   </div>
@@ -462,9 +510,8 @@
           </a>
         </div>
         <div class="hours">
-          <h4>Hours</h4>
-          <div class="hours-row"><span>Monday &ndash; Saturday</span><span>7:00 AM &ndash; 7:00 PM</span></div>
-          <div class="hours-row"><span>Sunday</span><span>By appointment</span></div>
+          <h4>Service Area</h4>
+          <p class="service-area-list">Leander &middot; Cedar Park &middot; Liberty Hill &middot; Georgetown &middot; Round Rock &amp; North Austin</p>
         </div>
       </div>
 
@@ -503,6 +550,21 @@
               <label for="zip">Project ZIP Code</label>
               <input type="text" id="zip" name="zip" inputmode="numeric" pattern="[0-9]*">
             </div>
+          </div>
+          <div class="field">
+            <label for="heard-from">How did you hear about us?</label>
+            <select id="heard-from" name="heard_from">
+              <option value="">Select one (optional)</option>
+              <option>Google search</option><option>Facebook / Instagram</option><option>Friend or family</option>
+              <option>Contractor / builder</option><option>Yard sign or truck</option><option>Nextdoor</option>
+              <option>Repeat customer</option><option>Other</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="quote-photos">Photos <span class="hint">(optional &mdash; helps us quote faster)</span></label>
+            <input type="file" id="quote-photos" accept="image/*" multiple>
+            <div class="thumbs" id="quote-thumbs"></div>
+            <p class="photo-msg" id="quote-photo-msg" role="status"></p>
           </div>
           <div class="field">
             <label for="details">Project Details</label>
@@ -555,7 +617,6 @@
         <ul>
           <li><a href="tel:15123374340">(512) 337-4340</a></li>
           <li><a href="mailto:info@texasdumpsterco.com">info@texasdumpsterco.com</a></li>
-          <li>Mon&ndash;Sat, 7AM&ndash;7PM</li>
         </ul>
       </div>
     </div>
@@ -573,7 +634,7 @@
 <!-- ============================= MOBILE CALL BAR ============================= -->
 <div class="mobile-call-bar">
   <a href="tel:15123374340" class="btn btn-primary">Call (512) 337-4340</a>
-  <a href="#book" class="btn btn-dark">Get A Quote</a>
+  <a href="/book" class="btn btn-dark">Book Online</a>
 </div>
 
 <script src="js/main.js"></script>

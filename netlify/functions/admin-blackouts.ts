@@ -24,6 +24,17 @@ export default adminHandler("staff", async (req, user) => {
     return json({ ok: true });
   }
 
+  if (body.action === "update") {
+    if (!body.id || !body.start_at || !body.end_at) return badRequest("id, start_at and end_at required");
+    if (new Date(body.end_at) <= new Date(body.start_at)) return badRequest("End must be after start");
+    const patch: Record<string, unknown> = { start_at: body.start_at, end_at: body.end_at };
+    if (body.reason !== undefined) patch.reason = body.reason;
+    const { data, error } = await db.from("blackouts").update(patch).eq("id", body.id).select().single();
+    if (error) throw new Error(error.message);
+    await audit({ actor: user.email!, action: "blackout.update", entity: "blackouts", entityId: body.id, detail: body });
+    return json({ blackout: data });
+  }
+
   // create
   if (!body.start_at || !body.end_at) return badRequest("start_at and end_at required");
   const scope = body.type_id ? "type" : "all";
