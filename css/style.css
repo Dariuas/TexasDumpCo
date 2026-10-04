@@ -678,6 +678,14 @@ table.price-table{ width:100%; border-collapse:collapse; }
 .why-item p{ color: var(--steel); font-size:.9rem; line-height:1.55; }
 
 /* ============================================================
+   MEET THE OWNER
+   ============================================================ */
+.owner{ max-width: 720px; margin: 0 auto; }
+.owner h2{ text-transform:uppercase; margin: 14px 0 20px; font-size:clamp(1.8rem,3vw,2.4rem); }
+.owner p{ color: rgba(255,253,248,.82); font-size:1.02rem; line-height:1.7; margin-bottom:16px; }
+.owner-sign{ color: var(--yellow); font-weight:700; text-transform:uppercase; letter-spacing:.06em; margin-top:22px; }
+
+/* ============================================================
    POLICY / PROHIBITED
    ============================================================ */
 .policy{
