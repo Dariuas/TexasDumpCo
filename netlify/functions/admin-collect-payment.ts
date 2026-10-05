@@ -2,7 +2,8 @@ import { adminHandler } from "./_shared/admin";
 import { json, badRequest, notFound, readJson } from "./_shared/response";
 import { supabaseAdmin } from "./_shared/supabase";
 import { stripe } from "./_shared/stripe";
-import { ensureFixedProduct } from "./_shared/stripe-catalog";
+import { ensureFixedProduct, ensureTaxRate } from "./_shared/stripe-catalog";
+import { loadSettings, num } from "./_shared/settings";
 import { assignUnitAndConfirm } from "./_shared/confirm";
 import { createCalendarEvent } from "./_shared/google-calendar";
 import { sendEmail, esc, bookingConfirmationHtml } from "./_shared/email";
@@ -92,20 +93,21 @@ export default adminHandler("staff", async (req, user) => {
   if (!invoice) {
     let customerId: string | null = b.stripe_customer_id;
     if (!customerId) {
-      // Stripe Tax needs a location; phone/quote customers never went through checkout.
-      const zip = String(b.delivery_address).match(/\b(\d{5})(?:-\d{4})?\b(?!.*\b\d{5}\b)/)?.[1];
-      if (!zip) return badRequest("Add a ZIP code to the delivery address so tax can be calculated");
+      // Phone/quote customers never went through checkout, so they have no Stripe customer yet.
       const customer = await s.customers.create({
         email: b.customer_email, name: b.customer_name, phone: b.customer_phone,
-        address: { line1: b.delivery_address, postal_code: zip, state: "TX", country: "US" },
+        address: { line1: b.delivery_address, state: "TX", country: "US" },
         metadata: { booking_id: b.id },
       });
       customerId = customer.id;
       await db.from("bookings").update({ stripe_customer_id: customerId }).eq("id", b.id);
     }
+    // Same separate "Sales Tax" line as checkout (settings.tax_rate_bps).
+    const taxRateId = await ensureTaxRate(num(await loadSettings(), "tax_rate_bps", 0));
+    const taxRates = taxRateId ? [taxRateId] : [];
     const draft = await s.invoices.create({
       customer: customerId, collection_method: "send_invoice", days_until_due: 7,
-      auto_advance: false, automatic_tax: { enabled: true },
+      auto_advance: false,
       description: `Balance — booking ${b.reference}`,
       metadata: { booking_id: b.id, kind: "balance", pretax_total_cents: String(total) },
     });
@@ -113,6 +115,7 @@ export default adminHandler("staff", async (req, user) => {
       customer: customerId, invoice: draft.id, currency: "usd", quantity: 1,
       description: `${typeName} ${b.start_date} to ${b.end_date} — balance for ${b.reference}`,
       price_data: { currency: "usd", unit_amount: due, tax_behavior: "exclusive", product: await ensureFixedProduct("balance", "Booking balance") },
+      tax_rates: taxRates,
     });
     invoice = await s.invoices.finalizeInvoice(draft.id);
     await db.from("bookings").update({ balance_invoice_id: invoice.id, balance_invoice_url: invoice.hosted_invoice_url }).eq("id", b.id);

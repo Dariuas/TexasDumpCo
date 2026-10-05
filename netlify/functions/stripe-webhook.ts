@@ -150,6 +150,9 @@ export default async (req: Request): Promise<Response> => {
       // Keep our books equal to what Stripe charged (Stripe Tax replaces our estimate).
       if (chargeKind === "full") {
         await db.from("bookings").update({ tax_cents: stripeTax, amount_total_cents: paid }).eq("id", booking.id);
+      } else if (session.amount_subtotal != null) {
+        // Deposit: keep the pre-tax part actually charged, so the balance invoice bills the rest before tax.
+        await db.from("bookings").update({ deposit_cents: session.amount_subtotal }).eq("id", booking.id);
       }
 
       // 2. Payment ledger (once per payment intent).

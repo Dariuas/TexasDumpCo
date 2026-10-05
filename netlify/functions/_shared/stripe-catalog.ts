@@ -97,3 +97,28 @@ export async function syncAll(): Promise<{ ok: number; failed: { id: string; err
   }
   return { ok, failed };
 }
+
+// Texas sales tax as a Stripe Tax Rate, from the admin `tax_rate_bps` setting (825 = 8.25%).
+// Attached to every line so Checkout, receipts and invoices show "Subtotal" and a
+// separate "Sales Tax" line that match the estimate on the booking page exactly.
+// Tax Rates are immutable, so a new rate is created (and cached) whenever the setting changes.
+export async function ensureTaxRate(bps: number): Promise<string | null> {
+  if (!(bps > 0)) return null;
+  const db = supabaseAdmin();
+  const key = `sales_tax_${bps}`;
+  const { data: row } = await db.from("stripe_catalog_items").select("stripe_price_id").eq("key", key).maybeSingle();
+  if (row?.stripe_price_id) return row.stripe_price_id;
+  const rate = await stripe().taxRates.create({
+    display_name: "Sales Tax",
+    description: `Texas sales tax ${bps / 100}%`,
+    percentage: bps / 100,
+    inclusive: false,
+    country: "US",
+    state: "TX",
+    jurisdiction: "TX",
+    tax_type: "sales_tax",
+    metadata: { source: "settings.tax_rate_bps", bps: String(bps) },
+  });
+  await db.from("stripe_catalog_items").upsert({ key, stripe_price_id: rate.id, amount_cents: bps });
+  return rate.id;
+}

@@ -56,8 +56,10 @@ Create in Stripe (Developers → Webhooks) pointing at the deployed site:
 
 ## Stripe Tax and catalog
 
-- Stripe Tax must be enabled (Dashboard → Tax), with the business address and Texas registration set. Checkout
-  uses `automatic_tax`; the site only shows an estimate from the `tax_rate_bps` setting (825 = 8.25%).
+- Sales tax is a Stripe Tax Rate ("Sales Tax", Texas) built from Admin → Settings → tax rate (`tax_rate_bps`,
+  825 = 8.25%). Checkout, receipts and invoices show the pre-tax subtotal and a separate Sales Tax line, matching
+  the booking page. Changing the setting creates a new Tax Rate automatically on the next charge. Stripe Tax
+  (automatic) is not used, so no Stripe Tax registration is required.
 - Admin → Inventory & Pricing → **Sync all to Stripe** creates a Stripe Product per type/add-on and a Price per
   rental length. New and edited items sync automatically on save.
 - Weight overage: staff use **Record weight** on a dumpster booking; the customer is emailed a Stripe Pay link,

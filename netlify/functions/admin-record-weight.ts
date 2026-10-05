@@ -3,7 +3,8 @@ import { json, badRequest, notFound, readJson } from "./_shared/response";
 import { supabaseAdmin } from "./_shared/supabase";
 import { stripe } from "./_shared/stripe";
 import { computeOverageCents } from "./_shared/overage";
-import { ensureFixedProduct } from "./_shared/stripe-catalog";
+import { ensureFixedProduct, ensureTaxRate } from "./_shared/stripe-catalog";
+import { loadSettings, num } from "./_shared/settings";
 import { sendEmail } from "./_shared/email";
 import { overageNoticeHtml } from "./_shared/overage-email";
 import { audit } from "./_shared/audit";
@@ -32,9 +33,12 @@ export default adminHandler("staff", async (req, user) => {
   if (b.overage_invoice_id) return badRequest("An overage invoice already exists. Waive it first to re-bill.");
 
   const s = stripe();
+  // Same separate "Sales Tax" line as checkout (settings.tax_rate_bps).
+  const taxRateId = await ensureTaxRate(num(await loadSettings(), "tax_rate_bps", 0));
+  const taxRates = taxRateId ? [taxRateId] : [];
   const invoice = await s.invoices.create({
     customer: b.stripe_customer_id, collection_method: "send_invoice", days_until_due: 7,
-    auto_advance: false, automatic_tax: { enabled: true },
+    auto_advance: false,
     description: `Weight overage — booking ${b.reference}`,
     metadata: { booking_id: b.id, kind: "overage" },
   });
@@ -42,6 +46,7 @@ export default adminHandler("staff", async (req, user) => {
     customer: b.stripe_customer_id, invoice: invoice.id, currency: "usd", quantity: 1,
     description: `Overage: ${weight} tons (limit ${limit}) — ${b.reference}`,
     price_data: { currency: "usd", unit_amount: overage, tax_behavior: "exclusive", product: await ensureFixedProduct("overage", "Weight overage") },
+    tax_rates: taxRates,
   });
   const final = await s.invoices.finalizeInvoice(invoice.id);
   await db.from("bookings").update({ overage_invoice_id: final.id, overage_invoice_url: final.hosted_invoice_url }).eq("id", b.id);

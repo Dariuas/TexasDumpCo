@@ -3,7 +3,7 @@ import { withErrors, json, badRequest, readJson } from "./_shared/response";
 import { supabaseAdmin } from "./_shared/supabase";
 import { getUser } from "./_shared/auth";
 import { stripe } from "./_shared/stripe";
-import { productIdForType, productIdForAddon, ensureFixedProduct } from "./_shared/stripe-catalog";
+import { productIdForType, productIdForAddon, ensureFixedProduct, ensureTaxRate } from "./_shared/stripe-catalog";
 import { siteUrl } from "./_shared/env";
 import { loadSettings, bool, num } from "./_shared/settings";
 import { buildQuote, contractorDiscountCents, likeLiteral, DumpsterType, PromoRow, DurationTier, AddonSelection, DistanceZone } from "./_shared/pricing";
@@ -295,15 +295,21 @@ export default withErrors(async (req: Request) => {
 
   // ---- card path: Stripe Checkout ----
   // Line items reference catalog Products (so Stripe reports group by item) with our
-  // computed amounts (so promos, contractor discounts and deposits still work). Tax is
-  // NOT included here: Stripe Tax adds it at checkout.
+  // computed pre-tax amounts (so promos, contractor discounts and deposits still work).
+  // Sales tax is a separate Stripe Tax Rate from the tax_rate_bps setting, so Checkout,
+  // the receipt and the dashboard show "Subtotal" and "Sales Tax" as their own lines.
+  const taxBps = num(settings, "tax_rate_bps", 0);
+  const taxRate = await ensureTaxRate(taxBps);
   const exclusive = (product: string, unit_amount: number) => ({
     quantity: 1,
     price_data: { currency: "usd" as const, unit_amount, tax_behavior: "exclusive" as const, product },
+    ...(taxRate ? { tax_rates: [taxRate] } : {}),
   });
   const lines: ReturnType<typeof exclusive>[] = [];
   if (choice === "card_deposit") {
-    lines.push(exclusive(await ensureFixedProduct("deposit", "Booking deposit"), quote.deposit_cents));
+    // The quoted deposit already includes tax; charge its pre-tax part so deposit + tax = quoted deposit.
+    const depositPreTax = Math.round((quote.deposit_cents * 10000) / (10000 + taxBps));
+    lines.push(exclusive(await ensureFixedProduct("deposit", "Booking deposit"), depositPreTax));
   } else {
     const separateAddons = addons.filter((a) => a.id);
     const separateTotal = separateAddons.reduce((s, a) => s + a.price_cents * a.qty, 0);
@@ -321,7 +327,6 @@ export default withErrors(async (req: Request) => {
     customer_email: body.customer_email,
     customer_creation: "always",
     billing_address_collection: "required",
-    automatic_tax: { enabled: true },
     payment_intent_data: { setup_future_usage: "off_session", description: `${t.name} ${startDate} to ${endDate} · Booking ${booking.reference}` },
     line_items: lines,
     metadata: {
