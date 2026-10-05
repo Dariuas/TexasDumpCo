@@ -21,4 +21,4 @@
 .ac-dot{ display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:4px; vertical-align:-1px; }
 .ac-dot.ac-open{ background:#8fd19e; }
 .ac-dot.ac-disabled{ background:#f4f1ea; border:1px solid #ddd; }
-.ac-loading{ padding:20px; text-align:center; color:#4a463e; font-size:.95rem; font-weight:600; }
+.avail-cal .ac-loading, .ac-loading{ padding:20px; text-align:center; color:#4a463e; font-size:.95rem; font-weight:600; }
