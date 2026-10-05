@@ -48,8 +48,18 @@ Site config → **Environment variables**. Paste all of these (values from the t
 Create in Stripe (Developers → Webhooks) pointing at the deployed site:
 
 - URL: `https://texasdumpco.netlify.app/api/stripe-webhook`
-- Events: `checkout.session.completed`, `payment_intent.succeeded`, `charge.refunded`
+- Events: `checkout.session.completed`, `payment_intent.succeeded`, `charge.refunded`, `invoice.paid`, `invoice.payment_failed`
+  (the last two reconcile weight-overage invoices)
 - Signing secret → `STRIPE_WEBHOOK_SECRET`
+
+## Stripe Tax and catalog
+
+- Stripe Tax must be enabled (Dashboard → Tax), with the business address and Texas registration set. Checkout
+  uses `automatic_tax`; the site only shows an estimate from the `tax_rate_bps` setting (825 = 8.25%).
+- Admin → Inventory & Pricing → **Sync all to Stripe** creates a Stripe Product per type/add-on and a Price per
+  rental length. New and edited items sync automatically on save.
+- Weight overage: staff use **Record weight** on a dumpster booking; the customer is emailed a Stripe Pay link,
+  and staff may **Charge saved card**. Nothing is charged automatically.
 
 ## Deploy
 
