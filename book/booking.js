@@ -468,6 +468,7 @@ function renderSummary() {
   $("#promo-wrap").hidden = quote;
   $("#pay-options").hidden = quote;
   $("#quote-note").hidden = !quote;
+  $("#stripe-note").hidden = quote;
   $("#submit-booking").textContent = quote ? "Request Quote" : "Book & Pay";
 
   const choice = document.querySelector('input[name="pay"]:checked')?.value || "card_full";
