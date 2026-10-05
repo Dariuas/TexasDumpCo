@@ -57,7 +57,7 @@ body.admin{ background:var(--paper); }
 
 .badge{ display:inline-block; padding:2px 8px; border-radius:20px; font-size:.72rem; font-family:var(--tag); font-weight:600; text-transform:uppercase; }
 .b-pending{ background:#ffe7b0; } .b-confirmed{ background:#bfe6c6; } .b-canceled{ background:#f2c7c2; }
-.b-completed{ background:#cfe0f5; } .b-paid{ background:#bfe6c6; } .b-unpaid{ background:#eee; }
+.b-completed{ background:#cfe0f5; } .b-paid{ background:#bfe6c6; } .b-unpaid{ background:#eee; } .b-due{ background:#ffd9a0; } .b-waived,.b-none{ background:#eee; }
 .b-cash_pending{ background:#ffd9a0; } .b-deposit_paid{ background:#d9ecc7; } .b-refunded{ background:#e6d3f2; }
 .b-scheduled,.b-delivered,.b-picked_up{ background:#cfe0f5; } .b-partially_refunded{ background:#e6d3f2; }
 .flag{ background:var(--red); color:#fff; padding:1px 7px; border-radius:20px; font-size:.68rem; margin-left:4px; }

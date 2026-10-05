@@ -303,6 +303,9 @@ async function openBooking(id) {
       <dt>Dates</dt><dd>${b.start_date} → ${b.end_date}${b.time_window ? ` · ${esc(b.time_window)}` : ""}</dd>
       <dt>Unit</dt><dd>${esc(b.inventory_units?.label || "— not assigned —")}</dd>
       <dt>Payment</dt><dd>${badge(b.payment_method)} ${badge(b.payment_status)} · paid ${money(b.amount_paid_cents)} / ${money(b.amount_total_cents)}</dd>
+      ${b.service === "dumpster" && b.payment_method === "card" ? `<dt>Weight</dt><dd>
+        ${b.weight_tons != null ? `${b.weight_tons} tons · overage ${money(b.overage_cents)} ${badge(b.overage_status)}` : '<span class="muted">Not recorded</span>'}
+        ${b.overage_invoice_url ? `<br><a href="${b.overage_invoice_url}" target="_blank" rel="noopener">Customer pay link</a>` : ""}</dd>` : ""}
       ${b.promo_codes ? `<dt>Promo</dt><dd>${esc(b.promo_codes.code)} (−${money(b.discount_cents)})</dd>` : ""}
       ${b.notes ? `<dt>Job notes</dt><dd>${esc(b.notes)}</dd>` : ""}
       ${b.referral_source ? `<dt>Heard about us</dt><dd>${esc(b.referral_source)}</dd>` : ""}
@@ -322,6 +325,9 @@ async function openBooking(id) {
         <button class="btn btn-primary btn-sm" data-act="cash-approve">Approve cash</button>
         <button class="btn btn-ghost btn-sm" data-act="cash-approve-collected">Approve + collected</button>
         <button class="btn btn-ghost btn-sm" data-act="cash-reject">Reject</button>` : ""}
+      ${b.service === "dumpster" && b.payment_method === "card" && b.overage_status !== "paid" ? `<button class="btn btn-ghost btn-sm" data-act="record-weight">Record weight</button>` : ""}
+      ${b.overage_status === "due" ? `<button class="btn btn-primary btn-sm" data-act="charge-overage" ${b.stripe_payment_method_id ? "" : 'disabled title="No saved card"'}>Charge saved card</button>
+        <button class="btn btn-ghost btn-sm" data-act="waive-overage">Waive overage</button>` : ""}
       ${b.status !== "canceled" ? `<button class="btn btn-ghost btn-sm" data-act="reschedule">Reschedule</button>` : ""}
       ${refundable > 0 && b.payment_method === "card" ? `<button class="btn btn-ghost btn-sm" data-act="refund">Refund</button>` : ""}
       ${b.status !== "canceled" ? `<button class="btn btn-ghost btn-sm" data-act="cancel">Cancel</button>` : ""}
@@ -382,6 +388,23 @@ async function openBooking(id) {
         const remainingFlags = (b.flags || []).filter((f) => f !== "quote_requested");
         await post("admin-booking-update", { id, action: "update", amount_total_cents: cents(amt), status: "confirmed", flags: remainingFlags });
         toast("Price set — booking confirmed"); refresh();
+      } else if (act === "record-weight") {
+        const w = parseFloat(prompt("Scale weight in tons (e.g. 1.87):"));
+        if (!(w >= 0)) return;
+        const prev = await post("admin-record-weight", { booking_id: id, weight_tons: w });
+        if (!prev.overage_cents) {
+          await post("admin-record-weight", { booking_id: id, weight_tons: w, confirm: true });
+          toast("Recorded — no overage"); refresh(); return;
+        }
+        if (!confirm(`Weight ${w} t, limit ${prev.limit_tons} t. Overage ${money(prev.overage_cents)} plus tax. Email the customer a pay link?`)) return;
+        await post("admin-record-weight", { booking_id: id, weight_tons: w, confirm: true });
+        toast("Overage invoice emailed"); refresh();
+      } else if (act === "charge-overage") {
+        if (!confirm("Charge the saved card for the overage now?")) return;
+        await post("admin-charge-overage", { booking_id: id, action: "charge" }); toast("Charged"); refresh();
+      } else if (act === "waive-overage") {
+        if (!confirm("Waive this overage?")) return;
+        await post("admin-charge-overage", { booking_id: id, action: "waive" }); toast("Waived"); refresh();
       } else if (act === "cash-approve") {
         await post("admin-approve-cash", { booking_id: id, decision: "approve" }); toast("Approved"); refresh();
       } else if (act === "cash-approve-collected") {
@@ -422,7 +445,7 @@ views.inventory = async (main) => {
     <p class="hint">Matches the TXD Master Pricing &amp; Phone Call Guide. Contractor rates and judgment fees are reference-only — apply them via <strong>Bookings → + New Booking (Phone Quote)</strong>, see Settings.</p>
     <h3>Types &amp; pricing ${isAdmin ? "" : "<span class='hint'>(read-only — admin edits pricing)</span>"}</h3>
     <div id="types"></div>
-    ${isAdmin ? `<button class="btn btn-ghost btn-sm" id="add-type">+ Add type</button>` : ""}
+    ${isAdmin ? `<button class="btn btn-ghost btn-sm" id="add-type">+ Add type</button> <button class="btn btn-ghost btn-sm" id="sync-stripe">Sync all to Stripe</button>` : ""}
     <details class="section-fold"><summary><h3>Units (physical containers)</h3></summary>
     <p class="hint">Types sharing the same "Equipment pool" label share physical containers for availability (e.g. Standard + Clean Green Waste roll-offs).</p>
     <div id="units"></div></details>
@@ -440,7 +463,8 @@ views.inventory = async (main) => {
       <details class="form type-card" data-id="${t.id}">
         <summary><strong>${esc(t.name)}</strong>
           <span class="muted">${t.pricing_mode === "quote_only" ? "starting at " : t.pricing_mode === "duration_tiers" ? "from " : ""}${money(t.base_price_cents)}</span>
-          <span class="badge b-${t.active ? "confirmed" : "unpaid"}">${t.active ? "active" : "hidden"}</span></summary>
+          <span class="badge b-${t.active ? "confirmed" : "unpaid"}">${t.active ? "active" : "hidden"}</span>
+          <span class="badge b-${t.stripe_sync_error ? "unpaid" : t.stripe_product_id ? "confirmed" : "pending"}" title="${esc(t.stripe_sync_error || "")}">${t.stripe_sync_error ? "Stripe: error" : t.stripe_product_id ? "in Stripe" : "not in Stripe"}</span></summary>
         <div class="row three">
           <label>Name<input class="f-name" value="${esc(t.name)}" ${isAdmin ? "" : "disabled"}></label>
           <label>Service<select class="f-service" ${isAdmin ? "" : "disabled"}><option ${t.service === "dumpster" ? "selected" : ""}>dumpster</option><option ${t.service === "junk" ? "selected" : ""}>junk</option></select></label>
@@ -481,7 +505,7 @@ views.inventory = async (main) => {
 
     if (isAdmin) $("#types").querySelectorAll("[data-save]").forEach((btn) => btn.addEventListener("click", async () => {
       const box = btn.closest(".form");
-      await post("admin-inventory", {
+      const saved = await post("admin-inventory", {
         action: "update_type", id: box.dataset.id,
         name: box.querySelector(".f-name").value, service: box.querySelector(".f-service").value,
         active: box.querySelector(".f-active").value === "true",
@@ -493,15 +517,16 @@ views.inventory = async (main) => {
         uses_inventory: box.querySelector(".f-inv").value === "true", equipment_pool: box.querySelector(".f-pool").value || null,
         description: box.querySelector(".f-desc").value,
       });
-      toast("Type saved"); sessionStorage.setItem("openType", box.dataset.id); render("inventory");
+      toast(saved.stripe_sync_error ? `Saved, but Stripe sync failed: ${saved.stripe_sync_error}` : "Type saved");
+      sessionStorage.setItem("openType", box.dataset.id); render("inventory");
     }));
     if (isAdmin) $("#types").querySelectorAll("[data-add-tier]").forEach((btn) => btn.addEventListener("click", async () => {
       const typeId = btn.dataset.addTier;
       const box = btn.closest(".form");
       const days = +box.querySelector(".nt-days").value, price = box.querySelector(".nt-price").value, label = box.querySelector(".nt-label").value;
       if (!days || !price) return alert("Days and price are required.");
-      await post("admin-inventory", { action: "upsert_tier", type_id: typeId, days, price_cents: cents(price), label: label || null, sort_order: days });
-      toast("Tier saved"); render("inventory");
+      const saved = await post("admin-inventory", { action: "upsert_tier", type_id: typeId, days, price_cents: cents(price), label: label || null, sort_order: days });
+      toast(saved.stripe_sync_error ? `Saved, but Stripe sync failed: ${saved.stripe_sync_error}` : "Tier saved"); render("inventory");
     }));
     types.filter((t) => t.pricing_mode === "duration_tiers").forEach((t) => {
       const rows = tiers.filter((r) => r.type_id === t.id).sort((a, b) => a.days - b.days);
@@ -519,6 +544,14 @@ views.inventory = async (main) => {
   const reopen = sessionStorage.getItem("openType");
   if (reopen) { sessionStorage.removeItem("openType"); const d = $(`.type-card[data-id="${reopen}"]`); if (d) { d.open = true; d.scrollIntoView({ block: "center" }); } }
 
+  if (isAdmin) $("#sync-stripe").addEventListener("click", async (e) => {
+    e.target.disabled = true;
+    try {
+      const r = await post("admin-stripe-sync", { scope: "all" });
+      toast(r.failed.length ? `Synced ${r.ok}, ${r.failed.length} failed: ${r.failed[0].error}` : `Synced ${r.ok} items to Stripe`);
+    } catch (err) { alert(err.message); }
+    render("inventory");
+  });
   if (isAdmin) $("#add-type").addEventListener("click", async () => {
     const name = prompt("New type name:"); if (!name) return;
     const service = prompt("Service (dumpster/junk):", "dumpster") || "dumpster";
