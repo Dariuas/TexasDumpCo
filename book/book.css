@@ -51,6 +51,8 @@
 
 /* fields */
 .field{ display:block; margin-bottom:16px; }
+/* .field display:block was overriding the hidden attribute */
+.field[hidden]{ display:none; }
 .field-label{ display:block; font-family:var(--tag); font-weight:600; text-transform:uppercase; letter-spacing:.05em; font-size:.78rem; margin-bottom:6px; }
 label.field{ font-family:var(--tag); font-weight:600; text-transform:uppercase; letter-spacing:.05em; font-size:.78rem; }
 .field input, .field select, .field textarea, .rental-days select{
