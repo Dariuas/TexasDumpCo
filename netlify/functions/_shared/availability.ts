@@ -27,15 +27,17 @@ export async function typeAvailability(
     if (error) throw new Error(error.message);
     avail = (data as number) ?? 0;
   } else {
-    // Crew/truck jobs have no units, but blackouts (owner shifts, holidays) still apply.
-    const { count, error } = await db
+    // Crew/truck jobs have no units, but blackouts (owner shifts, holidays) still apply
+    // to the days the truck goes out: the start day and the last day (same rule as SQL is_blacked_out).
+    const { data: bl, error } = await db
       .from("blackouts")
-      .select("id", { count: "exact", head: true })
+      .select("start_at,end_at")
       .or(`scope.eq.all,type_id.eq.${typeId}`)
       .lte("start_at", `${endDate}T23:59:59Z`)
       .gte("end_at", `${startDate}T00:00:00Z`);
     if (error) throw new Error(error.message);
-    if ((count ?? 0) > 0) return 0;
+    const covers = (day: string) => (bl ?? []).some((b) => b.start_at.slice(0, 10) <= day && b.end_at.slice(0, 10) >= day);
+    if (covers(startDate) || covers(endDate)) return 0;
   }
 
   const settings = await loadSettings();

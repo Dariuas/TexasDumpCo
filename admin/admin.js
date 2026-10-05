@@ -715,7 +715,7 @@ views.availability = async (main) => {
       <tbody id="auto-rows">${autoAll.slice(0, 12).map((b) => `<tr data-id="${b.id}" style="cursor:default"><td><input type="date" class="ab-start" value="${b.start_at.slice(0, 10)}"></td><td><input type="date" class="ab-end" value="${b.end_at.slice(0, 10)}"></td><td class="nowrap"><button class="btn btn-primary btn-sm" data-ab-save>Save</button> <button class="btn btn-ghost btn-sm" data-ab-del>Remove</button></td></tr>`).join("") || '<tr><td colspan="3" class="muted">None.</td></tr>'}</tbody></table></div>
       ${autoAll.length > 12 ? `<p class="hint">Showing the next 12 of ${autoAll.length}.</p>` : ""}
     </div>` : ""}
-    <p class="hint">Blackouts remove dates from customer availability — for holidays, full trucks, or maintenance windows.</p>
+    <p class="hint">Blackout days have no deliveries or pickups — for holidays, shifts, full trucks, or maintenance. A rental can still run across them; customers just cannot start or end on one.</p>
     <div class="form"><h3>Add blackout</h3>
       <div class="row three">
         <label>Start<input type="date" id="bo-start"></label>
