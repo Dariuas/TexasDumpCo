@@ -49,7 +49,8 @@ export function mountAvailabilityCalendar(container, opts) {
     return res.json();
   }
 
-  function render(availability) {
+  function render(availability, closedList = []) {
+    const closedSet = new Set(closedList);
     if (destroyed) return;
     const first = new Date(Date.UTC(view.y, view.m - 1, 1));
     const offset = first.getUTCDay();
@@ -63,11 +64,13 @@ export function mountAvailabilityCalendar(container, opts) {
       const dateStr = `${view.y}-${String(view.m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
       const outOfRange = dateStr < state.minDate || dateStr > state.maxDate;
       const avail = availability[dateStr] ?? 0;
+      const closed = !outOfRange && closedSet.has(dateStr);
       const full = avail <= 0;
-      const disabled = outOfRange || full;
+      const disabled = outOfRange || full || closed;
       const selected = dateStr === state.selected;
-      cells += `<button type="button" class="ac-cell ac-day${disabled ? " ac-disabled" : " ac-open"}${selected ? " ac-selected" : ""}"
-        data-date="${dateStr}" ${disabled ? "disabled" : ""} title="${outOfRange ? "Not bookable" : full ? "Fully booked" : "Available"}">${d}</button>`;
+      const cls = closed ? " ac-disabled ac-closed" : disabled ? " ac-disabled" : " ac-open";
+      cells += `<button type="button" class="ac-cell ac-day${cls}${selected ? " ac-selected" : ""}"
+        data-date="${dateStr}" ${disabled ? "disabled" : ""} title="${outOfRange ? "Not bookable" : closed ? "Closed" : full ? "Fully booked" : "Available"}">${d}</button>`;
     }
 
     container.innerHTML = `
@@ -78,7 +81,7 @@ export function mountAvailabilityCalendar(container, opts) {
       </div>
       <div class="ac-grid ac-weekdays">${WEEKDAYS.map((w) => `<span class="ac-cell ac-wd">${w}</span>`).join("")}</div>
       <div class="ac-grid">${cells}</div>
-      <div class="ac-legend"><span class="ac-dot ac-open"></span> Available <span class="ac-dot ac-disabled"></span> Full / unavailable</div>`;
+      <div class="ac-legend"><span class="ac-dot ac-open"></span> Available <span class="ac-dot ac-disabled"></span> Full / unavailable <span class="ac-dot ac-closed"></span> Closed</div>`;
 
     container.querySelectorAll(".ac-nav").forEach((btn) => btn.addEventListener("click", () => {
       const dir = Number(btn.dataset.nav);
@@ -100,7 +103,7 @@ export function mountAvailabilityCalendar(container, opts) {
     container.innerHTML = `<p class="ac-loading" role="status">Loading dates…</p>`;
     try {
       const res = await fetchMonth();
-      render(res.availability);
+      render(res.availability, res.closed || []);
     } catch (err) {
       container.innerHTML = `<p class="ac-loading">${err.message}</p>`;
     }

@@ -28,8 +28,9 @@ export default withErrors(async (req: Request) => {
   if (!type) return badRequest("type is required");
   if (!month || !/^\d{4}-\d{2}$/.test(month)) return badRequest("month must be YYYY-MM");
 
-  const { data: t } = await supabaseAdmin()
-    .from("dumpster_types").select("uses_inventory").eq("id", type).maybeSingle();
+  const db = supabaseAdmin();
+  const { data: t } = await db
+    .from("dumpster_types").select("uses_inventory,equipment_pool").eq("id", type).maybeSingle();
   if (!t) return badRequest("Unknown type");
 
   const [year, mon] = month.split("-").map(Number);
@@ -43,5 +44,20 @@ export default withErrors(async (req: Request) => {
   );
   starts.forEach((start, i) => { availability[start] = counts[i]; });
 
-  return json({ month, days, availability });
+  // Days that are themselves blacked out (owner shifts, holidays), so the calendar can
+  // show them as "Closed" rather than "Fully booked". Blackouts on any type that shares
+  // this type's containers count too.
+  let typeIds = [type];
+  if (t.equipment_pool) {
+    const { data: pool } = await db.from("dumpster_types").select("id").eq("equipment_pool", t.equipment_pool);
+    typeIds = (pool ?? []).map((p) => p.id);
+  }
+  const { data: blackouts, error } = await db.from("blackouts").select("start_at,end_at")
+    .or(`scope.eq.all,type_id.in.(${typeIds.join(",")})`)
+    .lte("start_at", `${starts[starts.length - 1]}T23:59:59Z`)
+    .gte("end_at", `${starts[0]}T00:00:00Z`);
+  if (error) throw new Error(error.message);
+  const closed = starts.filter((d) => (blackouts ?? []).some((b) => b.start_at.slice(0, 10) <= d && b.end_at.slice(0, 10) >= d));
+
+  return json({ month, days, availability, closed });
 });

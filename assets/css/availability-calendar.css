@@ -17,8 +17,11 @@
 .ac-day.ac-open:hover{ background:#c8ecce; }
 .ac-day.ac-selected{ background:var(--yellow, #ffc61a); border-color:var(--black, #0b0b0c); box-shadow:2px 2px 0 var(--black, #0b0b0c); }
 .ac-day.ac-disabled{ background:#f4f1ea; color:#c7c1b4; }
+.ac-day.ac-closed{ background:repeating-linear-gradient(45deg,#f6dcdc 0 4px,#fbeeee 4px 8px); color:#b04a4a; text-decoration:line-through; }
 .ac-legend{ display:flex; gap:14px; margin-top:8px; font-size:.72rem; color:#7a746a; align-items:center; }
 .ac-dot{ display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:4px; vertical-align:-1px; }
 .ac-dot.ac-open{ background:#8fd19e; }
 .ac-dot.ac-disabled{ background:#f4f1ea; border:1px solid #ddd; }
 .avail-cal .ac-loading, .ac-loading{ padding:20px; text-align:center; color:#4a463e; font-size:.95rem; font-weight:600; }
+.ac-dot.ac-closed{ background:repeating-linear-gradient(45deg,#e8a9a9 0 2px,#fbeeee 2px 4px); border:1px solid #d9a0a0; }
+.ac-legend{ flex-wrap:wrap; }

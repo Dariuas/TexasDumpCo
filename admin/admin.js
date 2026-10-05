@@ -690,10 +690,13 @@ views.availability = async (main) => {
   const blackouts = allBlackouts.filter((b) => b.reason !== AUTO);
   const autoAll = allBlackouts.filter((b) => b.reason === AUTO && b.end_at.slice(0, 10) >= todayStr());
   const autoNext = autoAll.slice(0, 6);
+  const shiftSaved = !!shiftRes.shift;
   const shift = shiftRes.shift || { enabled: true, anchor_date: "2026-10-06", on_days: 2, off_days: 4 };
   main.innerHTML = `
     <h2>Availability &amp; Blackouts</h2>
     ${me.role === "admin" ? `<div class="form"><h3>Owner shift schedule</h3>
+      ${!shiftSaved ? `<p style="background:#fde8e8;border:1px solid #d9a0a0;color:#7a1f1f;border-radius:4px;padding:8px 10px;margin:0 0 8px;font-size:.85rem"><strong>Not active yet.</strong> This pattern has never been saved, so customers can still book shift days. Check the dates and click Save below.</p>`
+        : !autoAll.length && shift.enabled ? `<p style="background:#fde8e8;border:1px solid #d9a0a0;color:#7a1f1f;border-radius:4px;padding:8px 10px;margin:0 0 8px;font-size:.85rem"><strong>No upcoming shift blocks.</strong> Click Save below to rebuild them.</p>` : ""}
       <p class="hint">Shift days are blocked automatically for customers. Repeats forever on the pattern below. Change the first shift date any time his schedule moves, then save.</p>
       <div class="row three">
         <label>First shift day<input type="date" id="sh-anchor" value="${esc(shift.anchor_date)}"></label>
@@ -745,8 +748,11 @@ views.availability = async (main) => {
   $("#bo-add").addEventListener("click", async () => {
     const start = $("#bo-start").value, end = $("#bo-end").value;
     if (!start || !end) return alert("Pick start and end.");
-    await post("admin-blackouts", { start_at: `${start}T00:00:00Z`, end_at: `${end}T23:59:59Z`, type_id: $("#bo-type").value || null, reason: $("#bo-reason").value });
-    render("availability");
+    if (end < start) return alert("End must be on or after start.");
+    try {
+      await post("admin-blackouts", { start_at: `${start}T00:00:00Z`, end_at: `${end}T23:59:59Z`, type_id: $("#bo-type").value || null, reason: $("#bo-reason").value });
+      toast("Blackout added"); render("availability");
+    } catch (e) { alert(e.message); }
   });
   main.querySelectorAll("[data-del]").forEach((b) => b.addEventListener("click", async () => { await post("admin-blackouts", { action: "delete", id: b.dataset.del }); render("availability"); }));
 };
