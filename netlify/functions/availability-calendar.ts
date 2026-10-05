@@ -36,11 +36,12 @@ export default withErrors(async (req: Request) => {
   const numDays = daysInMonth(year, mon);
 
   const availability: Record<string, number> = {};
-  for (let d = 1; d <= numDays; d++) {
-    const start = fmt(year, mon, d);
-    const end = addDays(start, days - 1);
-    availability[start] = await typeAvailability(type, start, end, t.uses_inventory);
-  }
+  // Days are independent, so query them in parallel (serial awaits took ~4s a month).
+  const starts = Array.from({ length: numDays }, (_, i) => fmt(year, mon, i + 1));
+  const counts = await Promise.all(
+    starts.map((start) => typeAvailability(type, start, addDays(start, days - 1), t.uses_inventory)),
+  );
+  starts.forEach((start, i) => { availability[start] = counts[i]; });
 
   return json({ month, days, availability });
 });
