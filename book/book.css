@@ -17,7 +17,7 @@
 }
 .steps li{
   flex:1 1 auto; text-align:center; padding:8px 4px; min-width:64px;
-  background:var(--paper-dim); color:#7a746a; border-bottom:3px solid transparent;
+  background:var(--paper-dim); color:#4a463e; border-bottom:3px solid transparent;
 }
 .steps li.active{ background:var(--yellow); color:var(--black); border-color:var(--black); font-weight:700; }
 .steps li.done{ background:var(--charcoal); color:var(--yellow); }
@@ -26,7 +26,7 @@
 
 .panel{ padding:16px; border-radius:var(--radius); background:var(--paper-dim); }
 .panel.error{ background:#fbe3e0; color:var(--red); border-left:4px solid var(--red); }
-.muted{ color:#7a746a; }
+.muted{ color:#4a463e; }
 
 /* choices */
 .choice-grid{ display:grid; gap:14px; grid-template-columns:1fr; }
@@ -131,4 +131,7 @@ label.field{ font-family:var(--tag); font-weight:600; text-transform:uppercase; 
 .inline-row{ display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
 .inline-row input{ flex:1; min-width:120px; }
 .btn-sm{ padding:7px 12px; font-size:.8rem; }
-.hint{ font-size:.82rem; color:#5a554c; }
+.hint{ font-size:.82rem; color:#4a463e; }
+/* ghost buttons default to white text (for dark headers); the booking pages are cream */
+.book-main .btn-ghost{ color:var(--black); border-color:var(--black); }
+.book-main .btn-ghost:hover{ background:var(--yellow-pale); }
