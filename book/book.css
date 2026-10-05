@@ -131,7 +131,7 @@ label.field{ font-family:var(--tag); font-weight:600; text-transform:uppercase; 
 .inline-row{ display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
 .inline-row input{ flex:1; min-width:120px; }
 .btn-sm{ padding:7px 12px; font-size:.8rem; }
-.hint{ font-size:.82rem; color:#4a463e; }
+.hint, .step p.hint, .step p.fineprint{ font-size:.82rem; color:#4a463e; }  /* beats the marketing-site ".step p" pale rule */
 /* ghost buttons default to white text (for dark headers); the booking pages are cream */
 .book-main .btn-ghost{ color:var(--black); border-color:var(--black); }
 .book-main .btn-ghost:hover{ background:var(--yellow-pale); }
