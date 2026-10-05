@@ -2,6 +2,12 @@ import { adminHandler } from "./_shared/admin";
 import { json, badRequest, forbidden, readJson } from "./_shared/response";
 import { supabaseAdmin } from "./_shared/supabase";
 import { audit } from "./_shared/audit";
+import { syncType, syncAddon } from "./_shared/stripe-catalog";
+
+// A Stripe failure must never fail the save; report it so the admin can retry.
+async function trySync(fn: () => Promise<void>): Promise<string | null> {
+  try { await fn(); return null; } catch (e) { console.error("[stripe sync]", (e as Error).message); return (e as Error).message; }
+}
 
 const TYPE_FIELDS = [
   "name", "service", "category", "pricing_mode", "size_yards", "description",
@@ -49,7 +55,8 @@ export default adminHandler("staff", async (req, user) => {
         .from("dumpster_types").insert(pick(body, TYPE_FIELDS)).select().single();
       if (error) throw new Error(error.message);
       await audit({ actor: user.email!, action: "type.create", entity: "dumpster_types", entityId: data.id });
-      return json({ type: data });
+      const stripe_sync_error = await trySync(() => syncType(data.id));
+      return json({ type: data, stripe_sync_error });
     }
     case "update_type": {
       if (!isAdmin) return forbidden("Admin required to edit pricing/types");
@@ -59,7 +66,8 @@ export default adminHandler("staff", async (req, user) => {
         .from("dumpster_types").update(pick(body, TYPE_FIELDS)).eq("id", body.id).select().single();
       if (error) throw new Error(error.message);
       await audit({ actor: user.email!, action: "type.update", entity: "dumpster_types", entityId: body.id, detail: pick(body, TYPE_FIELDS) });
-      return json({ type: data });
+      const stripe_sync_error = await trySync(() => syncType(body.id));
+      return json({ type: data, stripe_sync_error });
     }
     case "delete_type": {
       if (!isAdmin) return forbidden("Admin required");
@@ -68,7 +76,8 @@ export default adminHandler("staff", async (req, user) => {
       const { error } = await db.from("dumpster_types").update({ active: false }).eq("id", body.id);
       if (error) throw new Error(error.message);
       await audit({ actor: user.email!, action: "type.deactivate", entity: "dumpster_types", entityId: body.id });
-      return json({ ok: true });
+      const stripe_sync_error = await trySync(() => syncType(body.id));
+      return json({ ok: true, stripe_sync_error });
     }
     case "create_unit": {
       if (!body.type_id || !body.label) return badRequest("type_id and label required");
@@ -110,7 +119,8 @@ export default adminHandler("staff", async (req, user) => {
         .select().single();
       if (error) throw new Error(error.message);
       await audit({ actor: user.email!, action: "tier.upsert", entity: "duration_price_tiers", entityId: data.id, detail: { type_id: body.type_id, days: body.days, price_cents: body.price_cents } });
-      return json({ tier: data });
+      const stripe_sync_error = await trySync(() => syncType(body.type_id));
+      return json({ tier: data, stripe_sync_error });
     }
     case "delete_tier": {
       if (!isAdmin) return forbidden("Admin required");
@@ -131,7 +141,8 @@ export default adminHandler("staff", async (req, user) => {
         .select().single();
       if (error) throw new Error(error.message);
       await audit({ actor: user.email!, action: "addon.create", entity: "addon_items", entityId: data.id });
-      return json({ addon: data });
+      const stripe_sync_error = await trySync(() => syncAddon(data.id));
+      return json({ addon: data, stripe_sync_error });
     }
     case "update_addon": {
       if (!isAdmin) return forbidden("Admin required");
@@ -142,7 +153,8 @@ export default adminHandler("staff", async (req, user) => {
         .eq("id", body.id).select().single();
       if (error) throw new Error(error.message);
       await audit({ actor: user.email!, action: "addon.update", entity: "addon_items", entityId: body.id });
-      return json({ addon: data });
+      const stripe_sync_error = await trySync(() => syncAddon(body.id));
+      return json({ addon: data, stripe_sync_error });
     }
     case "delete_addon": {
       if (!isAdmin) return forbidden("Admin required");
