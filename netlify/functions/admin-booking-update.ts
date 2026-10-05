@@ -63,13 +63,18 @@ export default adminHandler("staff", async (req, user) => {
 
     case "reschedule": {
       if (!body.start_date || !body.end_date) return badRequest("start_date and end_date required");
-      // Availability excluding this booking is enforced by capacity check.
+      const ymd = /^\d{4}-\d{2}-\d{2}$/;
+      if (!ymd.test(body.start_date) || !ymd.test(body.end_date)) return badRequest("Dates must be YYYY-MM-DD");
+      if (body.end_date < body.start_date) return badRequest("End date is before start date");
       const { data: bt } = await db.from("dumpster_types").select("uses_inventory").eq("id", booking.type_id).maybeSingle();
-      const avail = await typeAvailability(booking.type_id, body.start_date, body.end_date, bt?.uses_inventory ?? true);
-      // The booking itself may already occupy a slot on its own dates; allow if
-      // there is room OR the dates are unchanged.
-      const sameWindow = body.start_date === booking.start_date && body.end_date === booking.end_date;
-      if (!sameWindow && avail <= 0) return badRequest("No availability for the new dates");
+      let avail = await typeAvailability(booking.type_id, body.start_date, body.end_date, bt?.uses_inventory ?? true);
+      // This booking already occupies a container on its old dates; when the old
+      // and new windows overlap it is counted against itself, so add it back.
+      const holdsUnit = booking.status !== "canceled" &&
+        (booking.status !== "pending" || (booking.hold_expires_at && new Date(booking.hold_expires_at) > new Date()));
+      const overlapsOld = booking.start_date <= body.end_date && booking.end_date >= body.start_date;
+      if (holdsUnit && overlapsOld) avail += 1;
+      if (avail <= 0) return badRequest("No availability for the new dates");
       await db.from("bookings").update({ start_date: body.start_date, end_date: body.end_date }).eq("id", body.id);
       await syncCalendar(body.id!);
       await audit({ actor: user.email!, action: "booking.reschedule", entity: "bookings", entityId: body.id, detail: { start: body.start_date, end: body.end_date } });

@@ -39,9 +39,9 @@ export function withErrors(fn: (req: Request) => Promise<Response>) {
     try {
       return await fn(req);
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Unexpected error";
+      // Log the real cause; customers get a generic message (no database/internal details).
       console.error("[function error]", err);
-      return serverError(message);
+      return serverError("Something went wrong. Please try again or call (512) 337-4340.");
     }
   };
 }

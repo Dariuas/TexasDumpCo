@@ -25,6 +25,7 @@ export default adminHandler("staff", async (req, user) => {
   const { data: booking } = await db.from("bookings").select("*").eq("id", body.booking_id).maybeSingle();
   if (!booking) return notFound("Booking not found");
   if (booking.payment_method !== "cash") return badRequest("Not a cash booking");
+  if (booking.status !== "pending") return badRequest(`Booking is already ${booking.status}`);
 
   if (body.decision === "reject") {
     if (booking.google_event_id) await deleteCalendarEvent(booking.google_event_id);

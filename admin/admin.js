@@ -291,7 +291,10 @@ async function openBooking(id) {
   const { booking: b, photos, payments } = await authFetch(`admin-bookings?id=${id}`);
   const drawer = $("#drawer"), backdrop = $("#drawer-backdrop");
   const typeName = b.dumpster_types?.name || "";
-  const refundable = b.amount_paid_cents - payments.filter((p) => p.kind === "refund").reduce((s, p) => s + p.amount_cents, 0);
+  // Every card payment (checkout, balance, overage) minus refunds; older bookings fall back to amount_paid.
+  const cardIn = payments.filter((p) => p.method === "card" && p.kind !== "refund").reduce((s, p) => s + p.amount_cents, 0);
+  const refunded = payments.filter((p) => p.kind === "refund").reduce((s, p) => s + p.amount_cents, 0);
+  const refundable = (cardIn || b.amount_paid_cents) - refunded;
 
   drawer.innerHTML = `
     <button class="close" id="drawer-close">×</button>
@@ -306,6 +309,7 @@ async function openBooking(id) {
       ${b.service === "dumpster" && b.payment_method === "card" ? `<dt>Weight</dt><dd>
         ${b.weight_tons != null ? `${b.weight_tons} tons · overage ${money(b.overage_cents)} ${badge(b.overage_status)}` : '<span class="muted">Not recorded</span>'}
         ${b.overage_invoice_url ? `<br><a href="${b.overage_invoice_url}" target="_blank" rel="noopener">Customer pay link</a>` : ""}</dd>` : ""}
+      ${b.balance_invoice_url ? `<dt>Balance</dt><dd><a href="${esc(b.balance_invoice_url)}" target="_blank" rel="noopener">Customer pay link</a></dd>` : ""}
       ${b.promo_codes ? `<dt>Promo</dt><dd>${esc(b.promo_codes.code)} (−${money(b.discount_cents)})</dd>` : ""}
       ${b.notes ? `<dt>Job notes</dt><dd>${esc(b.notes)}</dd>` : ""}
       ${b.referral_source ? `<dt>Heard about us</dt><dd>${esc(b.referral_source)}</dd>` : ""}
@@ -321,6 +325,10 @@ async function openBooking(id) {
     <div class="drawer-actions">
       ${(b.flags || []).includes("quote_requested") && b.status === "pending" ? `
         <button class="btn btn-primary btn-sm" data-act="set-price">Set Final Price &amp; Confirm</button>` : ""}
+      ${b.payment_method === "card" && b.status !== "canceled" && ["unpaid", "deposit_paid"].includes(b.payment_status)
+          && !(b.flags || []).includes("quote_requested") && b.amount_total_cents > b.amount_paid_cents ? `
+        <button class="btn btn-primary btn-sm" data-act="balance-link">Email pay link for balance</button>
+        ${b.stripe_payment_method_id ? '<button class="btn btn-ghost btn-sm" data-act="balance-charge">Charge saved card for balance</button>' : ""}` : ""}
       ${b.payment_status === "cash_pending" ? `
         <button class="btn btn-primary btn-sm" data-act="cash-approve">Approve cash</button>
         <button class="btn btn-ghost btn-sm" data-act="cash-approve-collected">Approve + collected</button>
@@ -373,7 +381,9 @@ async function openBooking(id) {
         await post("admin-booking-update", { id, action: "update", status: $("#d-status").value, flags, admin_notes: $("#d-notes").value });
         toast("Saved"); refresh();
       } else if (act === "cancel") {
-        if (confirm("Cancel this booking?")) { await post("admin-booking-update", { id, action: "cancel" }); toast("Canceled"); refresh(); render(currentView()); }
+        const paidMsg = refundable > 0 && b.payment_method === "card"
+          ? `\n\nThe customer paid ${money(refundable)} by card. Canceling does NOT refund it. Use Refund for that.` : "";
+        if (confirm(`Cancel this booking?${paidMsg}`)) { await post("admin-booking-update", { id, action: "cancel" }); toast("Canceled"); refresh(); render(currentView()); }
       } else if (act === "reschedule") {
         const start = prompt("New start date (YYYY-MM-DD):", b.start_date); if (!start) return;
         const end = prompt("New end date (YYYY-MM-DD):", b.end_date); if (!end) return;
@@ -384,10 +394,16 @@ async function openBooking(id) {
         await post("admin-refund", { booking_id: id, amount_cents: cents(amt) });
         toast("Refunded"); refresh();
       } else if (act === "set-price") {
-        const amt = prompt("Final agreed price in dollars:", (b.amount_total_cents / 100).toFixed(2)); if (!amt) return;
-        const remainingFlags = (b.flags || []).filter((f) => f !== "quote_requested");
-        await post("admin-booking-update", { id, action: "update", amount_total_cents: cents(amt), status: "confirmed", flags: remainingFlags });
-        toast("Price set — booking confirmed"); refresh();
+        const amt = prompt("Final agreed price in dollars, before tax:", (b.amount_total_cents / 100).toFixed(2)); if (!amt) return;
+        await post("admin-collect-payment", { booking_id: id, action: "finalize_quote", amount_cents: cents(amt) });
+        toast("Price set — booking confirmed, customer emailed. Use \"Email pay link\" to collect."); refresh();
+      } else if (act === "balance-link") {
+        if (!confirm("Email the customer a Stripe pay link for the remaining balance (tax added by Stripe)?")) return;
+        const r = await post("admin-collect-payment", { booking_id: id, action: "send_link" });
+        toast(r.emailed ? `Pay link emailed (${money(r.amount_due_cents)})` : "Invoice created, but the email failed. Copy the link from Stripe."); refresh();
+      } else if (act === "balance-charge") {
+        if (!confirm("Charge the saved card for the remaining balance now?")) return;
+        await post("admin-collect-payment", { booking_id: id, action: "charge_card" }); toast("Charged"); refresh();
       } else if (act === "record-weight") {
         const w = parseFloat(prompt("Scale weight in tons (e.g. 1.87):"));
         if (!(w >= 0)) return;

@@ -26,16 +26,23 @@ export async function assignUnitAndConfirm(bookingId: string, patch: ConfirmPatc
   if (capErr) throw new Error(capErr.message);
 
   // Crew/truck services (uses_inventory=false) have no units to run out of.
-  const { data: type } = await db.from("dumpster_types").select("uses_inventory").eq("id", booking.type_id).maybeSingle();
+  const { data: type } = await db.from("dumpster_types").select("uses_inventory,equipment_pool").eq("id", booking.type_id).maybeSingle();
   if ((type?.uses_inventory ?? true) && !hasRoom) return false;
 
-  // Pick a concrete free unit of this type (best effort — availability may be
-  // driven by units OR by a per-day cap, so a null unit is acceptable).
+  // Pick a concrete free unit (best effort — availability may be driven by
+  // units OR by a per-day cap, so a null unit is acceptable). Types that share
+  // an equipment_pool (standard, green waste, heavy material) draw from the
+  // same physical containers, which are all stored under one type.
   let unitId: string | null = null;
   if (hasRoom) {
+    let poolTypeIds: string[] = [booking.type_id];
+    if (type?.equipment_pool) {
+      const { data: pool } = await db.from("dumpster_types").select("id").eq("equipment_pool", type.equipment_pool);
+      poolTypeIds = (pool ?? []).map((p) => p.id);
+    }
     const { data: units } = await db
       .from("inventory_units").select("id")
-      .eq("type_id", booking.type_id)
+      .in("type_id", poolTypeIds)
       .in("status", ["available", "in_service"]);
     const candidateIds = (units ?? []).map((u) => u.id);
     if (candidateIds.length) {

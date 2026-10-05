@@ -1,7 +1,7 @@
 import type { Config } from "@netlify/functions";
 import { withErrors, json, badRequest, readJson } from "./_shared/response";
 import { supabaseAdmin } from "./_shared/supabase";
-import { sendEmail } from "./_shared/email";
+import { sendEmail, adminAlertTo } from "./_shared/email";
 import { optionalEnv } from "./_shared/env";
 
 const esc = (s: string) => String(s ?? "").replace(/[&<>"]/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[m]!));
@@ -28,7 +28,7 @@ export default withErrors(async (req: Request) => {
   }).select("id").single();
   if (error) throw new Error(error.message);
 
-  const alertTo = optionalEnv("ADMIN_ALERT_EMAIL");
+  const alertTo = await adminAlertTo();
   if (alertTo) {
     await sendEmail(alertTo, `Quote request — ${b.name}${photos.length ? ` (${photos.length} photo${photos.length > 1 ? "s" : ""})` : ""}`,
       `<div style="font-family:Arial,sans-serif"><h2>New quote request</h2><ul>

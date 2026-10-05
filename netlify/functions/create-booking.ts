@@ -9,7 +9,7 @@ import { loadSettings, bool, num } from "./_shared/settings";
 import { buildQuote, contractorDiscountCents, likeLiteral, DumpsterType, PromoRow, DurationTier, AddonSelection, DistanceZone } from "./_shared/pricing";
 import { checkChallenge, agreementHash } from "./_shared/agreement-verify";
 import { typeAvailability } from "./_shared/availability";
-import { sendEmail, adminAlertHtml } from "./_shared/email";
+import { sendEmail, adminAlertHtml, adminAlertTo } from "./_shared/email";
 import { optionalEnv } from "./_shared/env";
 
 const HOLD_MINUTES = 30;
@@ -215,7 +215,9 @@ export default withErrors(async (req: Request) => {
     agreement_verified_at: optionalEnv("RESEND_API_KEY") ? new Date().toISOString() : null,
     agreement_signed_ip: req.headers.get("x-nf-client-connection-ip") ?? req.headers.get("x-forwarded-for"),
     flags: quote.needs_quote ? ["quote_requested"] : [],
-    hold_expires_at: quote.needs_quote ? null : new Date(Date.now() + HOLD_MINUTES * 60_000).toISOString(),
+    // Only card checkouts hold inventory for HOLD_MINUTES; cash waits for staff approval
+    // and must not be auto-canceled by expire-holds before anyone looks at it.
+    hold_expires_at: quote.needs_quote || choice === "cash" ? null : new Date(Date.now() + HOLD_MINUTES * 60_000).toISOString(),
   }).select().single();
   if (bErr) throw new Error(bErr.message);
 
@@ -246,18 +248,23 @@ export default withErrors(async (req: Request) => {
   }
 
   // attach uploaded photos
-  if (Array.isArray(body.photos) && body.photos.length) {
-    await db.from("booking_photos").insert(
-      body.photos.map((p) => ({
+  // Only paths minted by upload-url, and only kinds a customer may set.
+  const photos = (Array.isArray(body.photos) ? body.photos : [])
+    .filter((p) => typeof p?.path === "string" && /^uploads\/[0-9a-f-]{36}\/[A-Za-z0-9._-]+$/.test(p.path))
+    .slice(0, 20);
+  if (photos.length) {
+    const { error: photoErr } = await db.from("booking_photos").insert(
+      photos.map((p) => ({
         booking_id: booking.id,
-        kind: (p.kind as string) ?? "junk_items",
+        kind: p.kind === "delivery_site" || p.kind === "other" ? p.kind : "junk_items",
         storage_path: p.path,
         uploaded_by: "customer",
       })),
     );
+    if (photoErr) console.error("[create-booking] photos not attached:", photoErr.message);
   }
 
-  const alertTo = optionalEnv("ADMIN_ALERT_EMAIL");
+  const alertTo = await adminAlertTo();
 
   // ---- quote-request path: cleanouts, heavy material, contractor-style jobs,
   // or any 35+ mile delivery. Never charged automatically. ----
@@ -306,7 +313,10 @@ export default withErrors(async (req: Request) => {
     if (quote.distance_fee_cents) lines.push(exclusive(await ensureFixedProduct("distance_fee", "Distance fee"), quote.distance_fee_cents));
   }
 
-  const session = await stripe().checkout.sessions.create({
+  // If Stripe rejects the session, release the hold now instead of blocking the dates for 30 minutes.
+  let session;
+  try {
+    session = await stripe().checkout.sessions.create({
     mode: "payment",
     customer_email: body.customer_email,
     customer_creation: "always",
@@ -319,9 +329,14 @@ export default withErrors(async (req: Request) => {
       charge_kind: choice === "card_deposit" ? "deposit" : "full",
     },
     success_url: `${siteUrl()}/book/confirm.html?ref=${booking.reference}`,
-    cancel_url: `${siteUrl()}/book/?canceled=${booking.reference}`,
+    cancel_url: `${siteUrl()}/book/?canceled=${booking.reference}&b=${booking.id}`,
     expires_at: Math.floor(Date.now() / 1000) + 30 * 60,
-  });
+    });
+  } catch (err) {
+    await db.from("bookings").update({ status: "canceled", hold_expires_at: null }).eq("id", booking.id);
+    console.error("[create-booking] checkout session failed:", (err as Error).message);
+    return json({ error: "Card checkout is unavailable right now. Please try again or call (512) 337-4340." }, 502);
+  }
 
   await db.from("bookings").update({ stripe_checkout_session_id: session.id }).eq("id", booking.id);
 

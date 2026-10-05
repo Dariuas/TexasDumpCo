@@ -1,5 +1,6 @@
 import { Resend } from "resend";
 import { optionalEnv } from "./env";
+import { loadSettings } from "./settings";
 
 // Email is optional: no key => log instead of send (keeps dev frictionless).
 function client(): Resend | null {
@@ -7,21 +8,38 @@ function client(): Resend | null {
   return key ? new Resend(key) : null;
 }
 
-const FROM = optionalEnv("EMAIL_FROM") || "Texas Dumpster Co <bookings@texasdumpco.com>";
+const FROM = optionalEnv("EMAIL_FROM") || "Texas Dumpster Co <bookings@texasdumpsterco.com>";
+// The sending domain has no inbox, so customer replies go to the owner's mailbox.
+const REPLY_TO = optionalEnv("EMAIL_REPLY_TO") || "texasdumpsterco@gmail.com";
 
 export const esc = (s: string) => String(s ?? "").replace(/[&<>"]/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[m]!));
 
-export async function sendEmail(to: string, subject: string, html: string): Promise<void> {
+// Returns true when the provider accepted the message. Never throws.
+export async function sendEmail(to: string, subject: string, html: string): Promise<boolean> {
   const c = client();
   if (!c) {
     console.log(`[email:skipped] to=${to} subject="${subject}"`);
-    return;
+    return false;
   }
   try {
-    await c.emails.send({ from: FROM, to, subject, html });
+    // Resend reports API failures (unverified domain, bad sender) in `error`, not by throwing.
+    const { error } = await c.emails.send({ from: FROM, to, subject, html, replyTo: REPLY_TO });
+    if (error) {
+      console.error(`[email] send failed to=${to} subject="${subject}": ${error.name}: ${error.message}`);
+      return false;
+    }
+    return true;
   } catch (err) {
     console.error("[email] send failed:", (err as Error).message);
+    return false;
   }
+}
+
+// Where staff alerts go: the admin Settings "alerts to" value, else the env var.
+export async function adminAlertTo(): Promise<string | undefined> {
+  const settings = await loadSettings();
+  const fromSettings = typeof settings["alert_email"] === "string" ? (settings["alert_email"] as string).trim() : "";
+  return fromSettings || optionalEnv("ADMIN_ALERT_EMAIL");
 }
 
 export function bookingConfirmationHtml(b: {

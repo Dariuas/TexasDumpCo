@@ -1,6 +1,7 @@
 import type { Config } from "@netlify/functions";
 import { withErrors, json, badRequest, readJson } from "./_shared/response";
 import { sendEmail } from "./_shared/email";
+import { optionalEnv } from "./_shared/env";
 import { makeChallenge } from "./_shared/agreement-verify";
 
 // Public: emails a 6-digit code to prove the signer controls the email address.
@@ -10,7 +11,7 @@ export default withErrors(async (req: Request) => {
   if (!email || !/^\S+@\S+\.\S+$/.test(email)) return badRequest("Valid email required");
   const { code, token } = makeChallenge(email);
   const es = lang === "es";
-  await sendEmail(
+  const sent = await sendEmail(
     email,
     es ? "Su código de verificación — Texas Dumpster Co" : "Your verification code — Texas Dumpster Co",
     `<div style="font-family:Arial,sans-serif;max-width:480px;margin:auto">
@@ -19,6 +20,8 @@ export default withErrors(async (req: Request) => {
        <p style="color:#666">${es ? "Vence en 15 minutos. Si no lo solicitó, ignore este mensaje." : "Expires in 15 minutes. If you didn't request this, ignore this email."}</p>
      </div>`,
   );
+  // Without a delivered code the customer cannot sign, so say so instead of waiting forever.
+  if (!sent && optionalEnv("RESEND_API_KEY")) return json({ error: "We couldn't send the code. Please call (512) 337-4340 to book." }, 502);
   return json({ token });
 });
 

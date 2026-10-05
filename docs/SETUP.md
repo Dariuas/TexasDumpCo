@@ -69,7 +69,7 @@ stripe listen --forward-to localhost:8888/api/stripe-webhook
 ## 4. Email (optional, recommended)
 
 1. Create a <https://resend.com> account, verify your sending domain.
-2. API key → `RESEND_API_KEY`. Set `EMAIL_FROM` (e.g. `Texas Dumpster Co <bookings@texasdumpco.com>`).
+2. API key → `RESEND_API_KEY`. Set `EMAIL_FROM` (e.g. `Texas Dumpster Co <bookings@texasdumpsterco.com>`).
 3. Without a key, the app logs emails instead of sending them.
 
 ---

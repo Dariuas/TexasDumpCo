@@ -238,11 +238,6 @@ input,select,textarea{ font-family: inherit; font-size:1rem; }
   margin-bottom: 40px;
   box-shadow: 8px 8px 0 rgba(0,0,0,.35);
 }
-.brand-card-top{
-  position: absolute;
-  top: 42px; right: 16px;
-  z-index: 2;
-}
 .brand-card-frame{
   border: 3px solid var(--black);
   border-radius: 10px;
@@ -261,14 +256,6 @@ input,select,textarea{ font-family: inherit; font-size:1rem; }
 }
 .brand-card-tag::before{ background: var(--yellow); }
 .brand-card-tag{ color: var(--yellow); }
-.brand-card-book{
-  background: var(--black); color: var(--yellow);
-  font-family: var(--tag); font-weight:700; text-transform:uppercase;
-  letter-spacing:.05em; font-size:.75rem;
-  padding: 13px 22px; border-radius:4px;
-  transition: transform .15s ease;
-}
-.brand-card-book:hover{ transform: translateY(-2px); }
 .hero h1{
   font-size: clamp(2.6rem, 5.2vw, 4.5rem);
   line-height: .98;
@@ -859,8 +846,6 @@ table.price-table{ width:100%; border-collapse:collapse; }
   .price-table thead th:nth-child(3), .price-table tbody td:nth-child(3){ display:none; }
   .section{ padding-block:64px; }
   .hero{ padding-block:56px 70px; }
-  .brand-card-top{ top:10px; right:10px; }
-  .brand-card-book{ padding:8px 12px; font-size:.6rem; }
   .brand-card-tag{ bottom:8px; padding:4px 10px; }
   .brand-card-tag.eyebrow{ font-size:.52rem; letter-spacing:.08em; white-space:nowrap; }
   .brand-card-tag.eyebrow::before{ width:12px; }

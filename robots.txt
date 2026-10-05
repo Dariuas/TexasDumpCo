@@ -1,0 +1,6 @@
+User-agent: *
+Disallow: /admin
+Disallow: /book/confirm.html
+Disallow: /api/
+
+Sitemap: https://texasdumpsterco.com/sitemap.xml

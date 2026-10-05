@@ -59,7 +59,16 @@ const state = {
     renderCategories();
     $("#loading").hidden = true;
     goStep("category");
-    const svc = new URLSearchParams(location.search).get("service");
+    const qs = new URLSearchParams(location.search);
+    if (qs.get("canceled") && qs.get("b")) {
+      // Back from Stripe without paying: free the held container right away.
+      api("release-hold", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ reference: qs.get("canceled"), booking_id: qs.get("b") }),
+      }).catch(() => {});
+      history.replaceState(null, "", location.pathname);
+    }
+    const svc = qs.get("service");
     if (svc) {
       const guess = svc === "junk" ? "junk_household" : "roll_off_standard";
       if (state.types.some((t) => t.category === guess)) selectCategory(guess);

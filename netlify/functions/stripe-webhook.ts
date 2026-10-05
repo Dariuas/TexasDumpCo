@@ -1,9 +1,9 @@
 import Stripe from "stripe";
 import { supabaseAdmin } from "./_shared/supabase";
-import { stripe } from "./_shared/stripe";
+import { stripe, invoicePaymentIntentId } from "./_shared/stripe";
 import { env, optionalEnv } from "./_shared/env";
 import { createCalendarEvent } from "./_shared/google-calendar";
-import { sendEmail, esc, bookingConfirmationHtml, adminAlertHtml } from "./_shared/email";
+import { sendEmail, esc, bookingConfirmationHtml, adminAlertHtml, adminAlertTo } from "./_shared/email";
 import { assignUnitAndConfirm } from "./_shared/confirm";
 
 // Insert the card payment into the ledger once per payment intent.
@@ -43,20 +43,35 @@ export default async (req: Request): Promise<Response> => {
       if (inv.metadata?.kind === "overage" && bookingId) {
         const { data: existing } = await db.from("payments").select("id").eq("booking_id", bookingId).eq("kind", "overage").eq("note", inv.id).maybeSingle();
         if (!existing) {
-          const { error } = await db.from("payments").insert({ booking_id: bookingId, kind: "overage", method: "card", amount_cents: inv.amount_paid, status: "succeeded", note: inv.id });
+          const { error } = await db.from("payments").insert({ booking_id: bookingId, kind: "overage", method: "card", amount_cents: inv.amount_paid, status: "succeeded", note: inv.id, stripe_payment_intent_id: await invoicePaymentIntentId(inv) });
           if (error) throw new Error(`Could not record overage payment: ${error.message}`);
         }
         await db.from("bookings").update({ overage_status: "paid" }).eq("id", bookingId);
+      }
+      if (inv.metadata?.kind === "balance" && bookingId) {
+        // Deposit remainder or finalized quote (admin-collect-payment). Ledger once per invoice.
+        const { data: existing } = await db.from("payments").select("id").eq("booking_id", bookingId).eq("kind", "balance").eq("note", inv.id).maybeSingle();
+        if (!existing) {
+          const { data: bk } = await db.from("bookings").select("amount_paid_cents").eq("id", bookingId).maybeSingle();
+          const { error } = await db.from("payments").insert({ booking_id: bookingId, kind: "balance", method: "card", amount_cents: inv.amount_paid, status: "succeeded", note: inv.id, stripe_payment_intent_id: await invoicePaymentIntentId(inv) });
+          if (error) throw new Error(`Could not record balance payment: ${error.message}`);
+          const paidNow = (bk?.amount_paid_cents ?? 0) + inv.amount_paid;
+          const pretaxTotal = Number(inv.metadata?.pretax_total_cents ?? paidNow);
+          await db.from("bookings").update({
+            payment_status: "paid", amount_paid_cents: paidNow,
+            amount_total_cents: paidNow, tax_cents: Math.max(0, paidNow - pretaxTotal),
+          }).eq("id", bookingId);
+        }
       }
       return new Response("ok", { status: 200 });
     }
     if (event.type === "invoice.payment_failed") {
       const inv = event.data.object as Stripe.Invoice;
       const bookingId = inv.metadata?.booking_id;
-      if (inv.metadata?.kind === "overage" && bookingId) {
+      if ((inv.metadata?.kind === "overage" || inv.metadata?.kind === "balance") && bookingId) {
         const { data: bk } = await db.from("bookings").select("flags").eq("id", bookingId).maybeSingle();
         const flags = new Set<string>(bk?.flags ?? []);
-        flags.add("overage_payment_failed");
+        flags.add(`${inv.metadata.kind}_payment_failed`);
         await db.from("bookings").update({ flags: [...flags] }).eq("id", bookingId);
       }
       return new Response("ok", { status: 200 });
@@ -76,7 +91,7 @@ export default async (req: Request): Promise<Response> => {
 
       const paid = session.amount_total ?? 0;
       const pi = typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id ?? null;
-      const alertTo = optionalEnv("ADMIN_ALERT_EMAIL");
+      const alertTo = await adminAlertTo();
 
       // Saved card (for later weight-overage charges) and the tax Stripe actually computed.
       let paymentMethodId: string | null = null;
@@ -126,14 +141,9 @@ export default async (req: Request): Promise<Response> => {
 
         // Consume promo once, on the invocation that actually confirms.
         if (booking.promo_code_id) {
-          await db.rpc("increment_promo_use", { p_id: booking.promo_code_id }).then(
-            () => {},
-            async () => {
-              // Fallback if RPC not present.
-              const { data: p } = await db.from("promo_codes").select("uses_count").eq("id", booking.promo_code_id).maybeSingle();
-              if (p) await db.from("promo_codes").update({ uses_count: (p.uses_count ?? 0) + 1 }).eq("id", booking.promo_code_id);
-            },
-          );
+          // supabase-js reports RPC failures in `error`; it does not reject.
+          const { error: promoErr } = await db.rpc("increment_promo_use", { p_id: booking.promo_code_id });
+          if (promoErr) console.error("[webhook] promo use not counted:", promoErr.message);
         }
       }
 
@@ -191,7 +201,12 @@ Ref: ${booking.reference}`,
       const charge = event.data.object as Stripe.Charge;
       const pi = typeof charge.payment_intent === "string" ? charge.payment_intent : charge.payment_intent?.id;
       if (pi) {
-        const { data: booking } = await db.from("bookings").select("*").eq("stripe_payment_intent_id", pi).maybeSingle();
+        let { data: booking } = await db.from("bookings").select("*").eq("stripe_payment_intent_id", pi).maybeSingle();
+        if (!booking) {
+          // Balance/overage invoices are paid by their own PaymentIntent, ledgered on the payment row.
+          const { data: pay } = await db.from("payments").select("booking_id").eq("stripe_payment_intent_id", pi).neq("kind", "refund").limit(1).maybeSingle();
+          if (pay) ({ data: booking } = await db.from("bookings").select("*").eq("id", pay.booking_id).maybeSingle());
+        }
         if (booking) {
           // Ledger refunds made outside the admin (e.g. in the Stripe dashboard).
           const refunds = await stripe().refunds.list({ charge: charge.id, limit: 100 });
@@ -205,7 +220,11 @@ Ref: ${booking.reference}`,
             });
             if (ledgerErr) throw new Error(`Could not record refund: ${ledgerErr.message}`);
           }
-          const fullyRefunded = charge.amount_refunded >= (charge.amount ?? 0);
+          // A booking can have several card payments (checkout, balance, overage); judge by the whole ledger.
+          const { data: ledger } = await db.from("payments").select("kind,amount_cents").eq("booking_id", booking.id).eq("method", "card");
+          const paidTotal = (ledger ?? []).filter((p) => p.kind !== "refund").reduce((s, p) => s + p.amount_cents, 0);
+          const refundedTotal = (ledger ?? []).filter((p) => p.kind === "refund").reduce((s, p) => s + p.amount_cents, 0);
+          const fullyRefunded = refundedTotal >= paidTotal;
           await db.from("bookings").update({
             payment_status: fullyRefunded ? "refunded" : "partially_refunded",
           }).eq("id", booking.id);

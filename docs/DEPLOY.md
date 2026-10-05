@@ -36,20 +36,22 @@ Site config → **Environment variables**. Paste all of these (values from the t
 | `GOOGLE_SERVICE_ACCOUNT_JSON` | client — full JSON on one line                                |
 | `GOOGLE_CALENDAR_ID`          | client                                                        |
 | `RESEND_API_KEY`              | optional                                                      |
-| `EMAIL_FROM`                  | optional, e.g. `Texas Dumpster Co <bookings@texasdumpco.com>` |
-| `ADMIN_ALERT_EMAIL`           | where new-booking alerts go                                   |
-| `SITE_URL`                    | `https://texasdumpco.netlify.app`                             |
+| `EMAIL_FROM`                  | `Texas Dumpster Co <bookings@texasdumpsterco.com>` (must be on the Resend-verified `texasdumpsterco.com` domain) |
+| `EMAIL_REPLY_TO`              | optional, defaults to `texasdumpsterco@gmail.com` (customer replies land here) |
+| `ADMIN_ALERT_EMAIL`           | fallback for staff alerts; Admin → Settings "alerts to" wins  |
+| `SITE_URL`                    | `https://texasdumpsterco.com` (Stripe return URLs)            |
 
-> Missing Google/Resend vars degrade gracefully (calendar/email just skip). Missing Supabase or
+> Missing Google/Resend vars degrade gracefully (calendar/email just skip). Once `RESEND_API_KEY` is set, every
+> online booking needs the emailed code, so a bad `EMAIL_FROM` blocks booking: check the function logs for `[email] send failed`. Missing Supabase or
 > Stripe vars will break booking — those three Supabase keys + the Stripe keys are the must-haves.
 
 ## Stripe webhook endpoint
 
 Create in Stripe (Developers → Webhooks) pointing at the deployed site:
 
-- URL: `https://texasdumpco.netlify.app/api/stripe-webhook`
+- URL: `https://texasdumpsterco.com/api/stripe-webhook`
 - Events: `checkout.session.completed`, `payment_intent.succeeded`, `charge.refunded`, `invoice.paid`, `invoice.payment_failed`
-  (the last two reconcile weight-overage invoices)
+  (the last two reconcile weight-overage and balance invoices)
 - Signing secret → `STRIPE_WEBHOOK_SECRET`
 
 ## Stripe Tax and catalog

@@ -1,7 +1,7 @@
 import type { Config } from "@netlify/functions";
 import { withErrors, json, badRequest, readJson } from "./_shared/response";
 import { supabaseAdmin } from "./_shared/supabase";
-import { sendEmail } from "./_shared/email";
+import { sendEmail, adminAlertTo } from "./_shared/email";
 import { optionalEnv } from "./_shared/env";
 
 const esc = (s: string) => s.replace(/[&<>"]/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[m]!));
@@ -52,7 +52,7 @@ export default withErrors(async (req: Request) => {
        <p>Your contractor number is <strong style="font-size:20px">${row.contractor_number}</strong>.</p>
        <p>We verify every new contractor before contractor pricing turns on. We will email you when you are approved.</p>
      </div>`);
-  const alertTo = optionalEnv("ADMIN_ALERT_EMAIL");
+  const alertTo = await adminAlertTo();
   if (alertTo) {
     await sendEmail(alertTo, `Contractor to approve — ${b.company_name}`,
       `<p><strong>${esc(b.company_name)}</strong> (${esc(b.contact_name)}, ${esc(b.phone)}, ${esc(email)}) requested contractor number ${row.contractor_number}.</p>

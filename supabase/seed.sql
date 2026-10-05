@@ -11,7 +11,7 @@
 insert into settings (key, value) values
   ('company_name',     '"Texas Dumpster Co"'),
   ('company_phone',    '"(512) 337-4340"'),
-  ('company_email',    '"bookings@texasdumpco.com"'),
+  ('company_email',    '"texasdumpsterco@gmail.com"'),
   ('deposit_percent',  '25'),
   ('tax_rate_bps',     '825'),
   ('lead_time_days',   '1'),
@@ -19,7 +19,7 @@ insert into settings (key, value) values
   ('cash_accepted',    'false'),
   ('booking_window_days', '120'),
   ('time_windows',     '["Morning (8a-12p)","Afternoon (12p-5p)","Anytime"]'),
-  ('alert_email',      '"bookings@texasdumpco.com"'),
+  ('alert_email',      '"texasdumpsterco@gmail.com"'),
   -- self-reported delivery distance, since the site has no live mileage lookup —
   -- mirrors the guide's own phone question "where is the job?"
   ('distance_zones', '[
