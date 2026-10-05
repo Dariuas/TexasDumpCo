@@ -317,6 +317,7 @@ const I18N = {
     },
     verifyTitle: "Verify your email", send: "Email me a code", verify: "Verify", resend: "Resend code",
     verifyHelp: "We email a 6-digit code to prove this email address is yours. We also email you a signed copy of this agreement.",
+    todo: "To continue:", todoAcks: "tick all 5 boxes", todoName: "type your name exactly as entered on the previous page", todoSig: "draw your signature", todoVerify: "verify your email with the code",
     sent: "Code sent. Check your inbox (and spam).", ok: "Email verified ✓", bad: "That code did not work.",
   },
   es: {
@@ -331,6 +332,7 @@ const I18N = {
     },
     verifyTitle: "Verifique su correo electrónico", send: "Envíenme un código", verify: "Verificar", resend: "Reenviar código",
     verifyHelp: "Le enviamos un código de 6 dígitos para comprobar que este correo es suyo. También le enviamos una copia firmada de este contrato.",
+    todo: "Para continuar:", todoAcks: "marque las 5 casillas", todoName: "escriba su nombre exactamente como lo ingresó en la página anterior", todoSig: "dibuje su firma", todoVerify: "verifique su correo con el código",
     sent: "Código enviado. Revise su bandeja de entrada (y el correo no deseado).", ok: "Correo verificado ✓", bad: "Ese código no funcionó.",
   },
 };
@@ -421,6 +423,8 @@ function validateAgreement() {
   const nameOk = $("#sign-name").value.trim().toLowerCase() === $("#c-name").value.trim().toLowerCase() && $("#sign-name").value.trim() !== "";
   const verifyOk = !state.config.emailVerification || state.verified;
   $("#to-payment").disabled = !(acksOk && nameOk && sigInk && verifyOk);
+  const todo = [!acksOk && t("todoAcks"), !nameOk && t("todoName"), !sigInk && t("todoSig"), !verifyOk && t("todoVerify")].filter(Boolean);
+  $("#agr-todo").textContent = todo.length ? `${t("todo")} ${todo.join("; ")}.` : "";
 }
 
 // contractor number -> server confirms it is approved for this email and returns the discount
