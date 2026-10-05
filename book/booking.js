@@ -220,7 +220,7 @@ function renderDurations() {
   $("#duration-list").querySelectorAll(".type-card").forEach((card) =>
     card.addEventListener("click", () => {
       state.days = Number(card.dataset.days);
-      $("#duration-list .type-card").forEach((c) => c.classList.toggle("selected", c === card));
+      document.querySelectorAll("#duration-list .type-card").forEach((c) => c.classList.toggle("selected", c === card));
       advance("duration");
     }));
 }
@@ -239,7 +239,7 @@ function renderZones() {
   $("#zone-list").querySelectorAll(".type-card").forEach((card) =>
     card.addEventListener("click", () => {
       state.zone = zones.find((z) => z.code === card.dataset.code);
-      $("#zone-list .type-card").forEach((c) => c.classList.toggle("selected", c === card));
+      document.querySelectorAll("#zone-list .type-card").forEach((c) => c.classList.toggle("selected", c === card));
     }));
 }
 
