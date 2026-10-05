@@ -1,3 +1,4 @@
+import type { Config } from "@netlify/functions";
 import { withErrors, json, badRequest, readJson } from "./_shared/response";
 import { supabaseAdmin } from "./_shared/supabase";
 
@@ -22,3 +23,6 @@ export default withErrors(async (req: Request) => {
 
   return json({ path, token: data.token, signedUrl: data.signedUrl });
 });
+
+// Abuse guard: per-IP limit, enforced by Netlify before the function runs.
+export const config: Config = { rateLimit: { windowLimit: 20, windowSize: 60, aggregateBy: ["ip", "domain"] } } as Config; // windowLimit postdates the installed @netlify/functions types

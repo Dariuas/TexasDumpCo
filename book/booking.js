@@ -477,6 +477,7 @@ function renderSummary() {
   $("#pay-options").hidden = quote;
   $("#quote-note").hidden = !quote;
   $("#stripe-note").hidden = quote;
+  $("#card-consent").hidden = quote || (document.querySelector('input[name="pay"]:checked')?.value === "cash");
   $("#submit-booking").textContent = quote ? "Request Quote" : "Book & Pay";
 
   const choice = document.querySelector('input[name="pay"]:checked')?.value || "card_full";
@@ -489,8 +490,8 @@ function renderSummary() {
     ${state.startDate ? `<div class="line"><span>Date</span><span>${state.startDate}</span></div>` : ""}
     ${state.zone ? `<div class="line"><span>${state.zone.label}</span><span>${q.distanceFee ? money(q.distanceFee) : (state.zone.quote_only ? "—" : "Included")}</span></div>` : ""}
     ${q.discount ? `<div class="line disc"><span>Discount ${state.promo.code}</span><span>−${money(q.discount)}</span></div>` : ""}
-    ${!quote && q.tax ? `<div class="line"><span>Tax</span><span>${money(q.tax)}</span></div>` : ""}
-    <div class="line total"><span>${quote ? "Estimated total (before tax)" : "Total"}</span><span>${quote ? money(q.total - q.tax) + "+" : money(q.total)}</span></div>
+    ${!quote && q.tax ? `<div class="line"><span>Estimated tax</span><span>${money(q.tax)}</span></div>` : ""}
+    <div class="line total"><span>${quote ? "Estimated total (before tax)" : "Estimated total"}</span><span>${quote ? money(q.total - q.tax) + "+" : money(q.total)}</span></div>
     ${!quote ? `<div class="line"><span>Due now (${choice === "cash" ? "cash on approval" : choice === "card_deposit" ? "deposit" : "full"})</span><span>${money(dueNow)}</span></div>` : ""}`;
 }
 

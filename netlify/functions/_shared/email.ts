@@ -9,6 +9,8 @@ function client(): Resend | null {
 
 const FROM = optionalEnv("EMAIL_FROM") || "Texas Dumpster Co <bookings@texasdumpco.com>";
 
+export const esc = (s: string) => String(s ?? "").replace(/[&<>"]/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[m]!));
+
 export async function sendEmail(to: string, subject: string, html: string): Promise<void> {
   const c = client();
   if (!c) {
@@ -40,10 +42,10 @@ export function bookingConfirmationHtml(b: {
         Texas Dumpster Co
       </div>
       <div style="padding:24px;color:#111">
-        <h2>Booking confirmed — ${b.reference}</h2>
-        <p>Hi ${b.customer_name}, thanks for booking with us. Here are your details:</p>
+        <h2>Booking confirmed — ${esc(b.reference)}</h2>
+        <p>Hi ${esc(b.customer_name)}, thanks for booking with us. Here are your details:</p>
         <table style="width:100%;border-collapse:collapse">
-          <tr><td><strong>Service</strong></td><td>${b.typeName}</td></tr>
+          <tr><td><strong>Service</strong></td><td>${esc(b.typeName)}</td></tr>
           <tr><td><strong>Dates</strong></td><td>${b.start_date} → ${b.end_date}</td></tr>
           <tr><td><strong>Total</strong></td><td>${dollars(b.amount_total_cents)}</td></tr>
           <tr><td><strong>Paid</strong></td><td>${dollars(b.amount_paid_cents)} (${b.payment_method})</td></tr>
@@ -65,10 +67,10 @@ export function adminAlertHtml(b: {
 }): string {
   return `
     <div style="font-family:Arial,sans-serif">
-      <h2>New booking: ${b.reference}</h2>
+      <h2>New booking: ${esc(b.reference)}</h2>
       <ul>
-        <li><strong>Customer:</strong> ${b.customer_name} (${b.customer_phone})</li>
-        <li><strong>Service:</strong> ${b.typeName}</li>
+        <li><strong>Customer:</strong> ${esc(b.customer_name)} (${esc(b.customer_phone)})</li>
+        <li><strong>Service:</strong> ${esc(b.typeName)}</li>
         <li><strong>Delivery:</strong> ${b.start_date}</li>
         <li><strong>Payment:</strong> ${b.payment_method} / ${b.payment_status}</li>
       </ul>

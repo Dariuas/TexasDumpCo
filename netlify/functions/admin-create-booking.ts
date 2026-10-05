@@ -92,7 +92,11 @@ export default adminHandler("staff", async (req, user) => {
   }).select().single();
   if (error) throw new Error(error.message);
 
-  await assignUnitAndConfirm(booking.id, { payment_status: paymentStatus, amount_paid_cents: amountPaid });
+  const confirmed = await assignUnitAndConfirm(booking.id, { payment_status: paymentStatus, amount_paid_cents: amountPaid });
+  if (!confirmed) {
+    await db.from("bookings").update({ status: "canceled" }).eq("id", booking.id);
+    return badRequest("No capacity left for those dates");
+  }
 
   if (paymentStatus !== "unpaid") {
     await db.from("payments").insert({

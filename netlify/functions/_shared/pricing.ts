@@ -22,6 +22,7 @@ export interface DurationTier {
 }
 
 export interface AddonSelection {
+  id?: string;
   name: string;
   price_cents: number;
   qty: number;
@@ -58,6 +59,11 @@ export interface Quote {
   deposit_cents: number;
   extra_days: number;
   needs_quote: boolean;
+}
+
+// Escape LIKE wildcards so a typed promo code is matched literally by ilike().
+export function likeLiteral(s: string): string {
+  return s.replace(/[\\%_]/g, (m) => `\\${m}`);
 }
 
 // Validate a promo against a subtotal + service. Returns a reason if invalid.
@@ -110,9 +116,10 @@ function resolveBase(
       const extraDays = rentalDays - longest.days;
       return { price: longest.price_cents + extraDays * type.extra_day_fee_cents, extraDays };
     }
-    // shorter than the shortest tier: fall back to the shortest tier's price
-    const shortest = sorted[0];
-    return { price: shortest.price_cents, extraDays: 0 };
+    // Between tiers (or under the shortest): charge the next tier up, so a
+    // 6-day rental never prices below the 7-day rate.
+    const nextUp = sorted.find((t) => t.days >= rentalDays) ?? sorted[0];
+    return { price: nextUp.price_cents, extraDays: 0 };
   }
   // flat or quote_only (estimate)
   const extraDays = Math.max(0, rentalDays - type.rental_days_included);

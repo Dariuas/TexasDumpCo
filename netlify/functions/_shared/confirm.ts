@@ -5,12 +5,17 @@ interface ConfirmPatch {
   amount_paid_cents: number;
   stripe_payment_intent_id?: string | null;
   stripe_customer_id?: string | null;
+  stripe_payment_method_id?: string | null;
 }
 
 // Confirm a pending booking: verify capacity still exists, assign a free
 // physical unit, mark it confirmed, and clear the inventory hold. Used by
 // both the Stripe webhook (card) and cash approval.
-export async function assignUnitAndConfirm(bookingId: string, patch: ConfirmPatch): Promise<void> {
+//
+// Returns false (and leaves the booking untouched) when the type is
+// unit-constrained and no capacity remains, e.g. a late payment landed after
+// the hold expired and the dates were re-booked. Callers decide what to do.
+export async function assignUnitAndConfirm(bookingId: string, patch: ConfirmPatch): Promise<boolean> {
   const db = supabaseAdmin();
 
   const { data: booking } = await db.from("bookings").select("*").eq("id", bookingId).maybeSingle();
@@ -19,6 +24,10 @@ export async function assignUnitAndConfirm(bookingId: string, patch: ConfirmPatc
   // Capacity guard against the last-unit race.
   const { data: hasRoom, error: capErr } = await db.rpc("try_reserve_capacity", { p_booking: bookingId });
   if (capErr) throw new Error(capErr.message);
+
+  // Crew/truck services (uses_inventory=false) have no units to run out of.
+  const { data: type } = await db.from("dumpster_types").select("uses_inventory").eq("id", booking.type_id).maybeSingle();
+  if ((type?.uses_inventory ?? true) && !hasRoom) return false;
 
   // Pick a concrete free unit of this type (best effort — availability may be
   // driven by units OR by a per-day cap, so a null unit is acceptable).
@@ -40,13 +49,16 @@ export async function assignUnitAndConfirm(bookingId: string, patch: ConfirmPatc
     }
   }
 
-  await db.from("bookings").update({
+  const { error: updErr } = await db.from("bookings").update({
     status: "confirmed",
     unit_id: unitId,
     payment_status: patch.payment_status,
     amount_paid_cents: patch.amount_paid_cents,
     stripe_payment_intent_id: patch.stripe_payment_intent_id ?? booking.stripe_payment_intent_id,
     stripe_customer_id: patch.stripe_customer_id ?? booking.stripe_customer_id,
+    stripe_payment_method_id: patch.stripe_payment_method_id ?? booking.stripe_payment_method_id,
     hold_expires_at: null,
   }).eq("id", bookingId);
+  if (updErr) throw new Error(`Could not confirm booking: ${updErr.message}`);
+  return true;
 }

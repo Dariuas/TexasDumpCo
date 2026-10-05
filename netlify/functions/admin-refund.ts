@@ -33,9 +33,11 @@ export default adminHandler("admin", async (req, user) => {
     amount,
     reason: "requested_by_customer",
     metadata: { booking_id: booking.id, note: body.reason ?? "" },
-  });
+  }, { idempotencyKey: `refund-${booking.id}-${alreadyRefunded}-${amount}` }); // blocks double-click duplicates
 
-  await db.from("payments").insert({
+  // The charge.refunded webhook may have already ledgered this refund.
+  const { data: ledgered } = await db.from("payments").select("id").eq("stripe_refund_id", refund.id).maybeSingle();
+  if (!ledgered) await db.from("payments").insert({
     booking_id: booking.id,
     kind: "refund",
     method: "card",

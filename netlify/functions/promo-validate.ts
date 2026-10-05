@@ -1,6 +1,6 @@
 import { withErrors, json, badRequest, readJson } from "./_shared/response";
 import { supabaseAdmin } from "./_shared/supabase";
-import { validatePromo, discountFor, PromoRow } from "./_shared/pricing";
+import { validatePromo, discountFor, likeLiteral, PromoRow } from "./_shared/pricing";
 
 interface Body {
   code?: string;
@@ -19,7 +19,7 @@ export default withErrors(async (req: Request) => {
   const { data, error } = await supabaseAdmin()
     .from("promo_codes")
     .select("*")
-    .ilike("code", body.code.trim())
+    .ilike("code", likeLiteral(body.code.trim()))
     .maybeSingle();
   if (error) throw new Error(error.message);
 

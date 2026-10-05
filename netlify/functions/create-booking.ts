@@ -1,10 +1,12 @@
+import type { Config } from "@netlify/functions";
 import { withErrors, json, badRequest, readJson } from "./_shared/response";
 import { supabaseAdmin } from "./_shared/supabase";
 import { getUser } from "./_shared/auth";
 import { stripe } from "./_shared/stripe";
+import { productIdForType, productIdForAddon, ensureFixedProduct } from "./_shared/stripe-catalog";
 import { siteUrl } from "./_shared/env";
 import { loadSettings, bool, num } from "./_shared/settings";
-import { buildQuote, contractorDiscountCents, DumpsterType, PromoRow, DurationTier, AddonSelection, DistanceZone } from "./_shared/pricing";
+import { buildQuote, contractorDiscountCents, likeLiteral, DumpsterType, PromoRow, DurationTier, AddonSelection, DistanceZone } from "./_shared/pricing";
 import { checkChallenge, agreementHash } from "./_shared/agreement-verify";
 import { typeAvailability } from "./_shared/availability";
 import { sendEmail, adminAlertHtml } from "./_shared/email";
@@ -99,7 +101,8 @@ export default withErrors(async (req: Request) => {
   // ---- date window guards ----
   const leadDays = num(settings, "lead_time_days", 1);
   const windowDays = num(settings, "booking_window_days", 120);
-  const today = new Date().toISOString().slice(0, 10);
+  // Business runs on Central time; UTC would roll "today" forward each evening.
+  const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
   const earliest = addDays(today, leadDays);
   const latest = addDays(today, windowDays);
   if (body.start_date! < earliest) return badRequest(`Earliest available date is ${earliest}`);
@@ -111,7 +114,10 @@ export default withErrors(async (req: Request) => {
     const { data } = await db.from("duration_price_tiers").select("days,price_cents,label").eq("type_id", t.id);
     tiers = data ?? [];
   }
-  const rentalDays = Math.max(1, Number(body.rental_days ?? t.rental_days_included));
+  const rentalDays = Number(body.rental_days ?? t.rental_days_included);
+  if (!Number.isInteger(rentalDays) || rentalDays < 1 || rentalDays > 365) {
+    return badRequest("rental_days must be a whole number from 1 to 365");
+  }
   const startDate = body.start_date!;
   const endDate = addDays(startDate, rentalDays - 1);
 
@@ -125,7 +131,7 @@ export default withErrors(async (req: Request) => {
   let addons: AddonSelection[] = [];
   if (Array.isArray(body.addon_ids) && body.addon_ids.length) {
     const { data } = await db.from("addon_items").select("id,name,price_cents").in("id", body.addon_ids).eq("active", true);
-    addons = (data ?? []).map((a) => ({ name: a.name, price_cents: a.price_cents, qty: 1 }));
+    addons = (data ?? []).map((a) => ({ id: a.id, name: a.name, price_cents: a.price_cents, qty: 1 }));
   }
 
   // ---- distance zone ----
@@ -139,7 +145,7 @@ export default withErrors(async (req: Request) => {
   // ---- promo ----
   let promo: PromoRow | null = null;
   if (body.promo_code) {
-    const { data } = await db.from("promo_codes").select("*").ilike("code", body.promo_code.trim()).maybeSingle();
+    const { data } = await db.from("promo_codes").select("*").ilike("code", likeLiteral(body.promo_code.trim())).maybeSingle();
     promo = (data as PromoRow) ?? null;
   }
 
@@ -166,9 +172,6 @@ export default withErrors(async (req: Request) => {
     return badRequest("Cash payment is not currently available");
   }
   const method = choice === "cash" ? "cash" : "card";
-  const chargeNow =
-    choice === "card_full" ? quote.amount_total_cents :
-    choice === "card_deposit" ? quote.deposit_cents : 0;
 
   // ---- optional logged-in customer ----
   const user = await getUser(req);
@@ -284,20 +287,33 @@ export default withErrors(async (req: Request) => {
   }
 
   // ---- card path: Stripe Checkout ----
+  // Line items reference catalog Products (so Stripe reports group by item) with our
+  // computed amounts (so promos, contractor discounts and deposits still work). Tax is
+  // NOT included here: Stripe Tax adds it at checkout.
+  const exclusive = (product: string, unit_amount: number) => ({
+    quantity: 1,
+    price_data: { currency: "usd" as const, unit_amount, tax_behavior: "exclusive" as const, product },
+  });
+  const lines: ReturnType<typeof exclusive>[] = [];
+  if (choice === "card_deposit") {
+    lines.push(exclusive(await ensureFixedProduct("deposit", "Booking deposit"), quote.deposit_cents));
+  } else {
+    const separateAddons = addons.filter((a) => a.id);
+    const separateTotal = separateAddons.reduce((s, a) => s + a.price_cents * a.qty, 0);
+    const mainNet = Math.max(0, quote.subtotal_cents - separateTotal - quote.discount_cents);
+    lines.push(exclusive(await productIdForType(t.id), mainNet));
+    for (const a of separateAddons) lines.push(exclusive(await productIdForAddon(a.id!), a.price_cents * a.qty));
+    if (quote.distance_fee_cents) lines.push(exclusive(await ensureFixedProduct("distance_fee", "Distance fee"), quote.distance_fee_cents));
+  }
+
   const session = await stripe().checkout.sessions.create({
     mode: "payment",
     customer_email: body.customer_email,
-    line_items: [{
-      quantity: 1,
-      price_data: {
-        currency: "usd",
-        unit_amount: chargeNow,
-        product_data: {
-          name: choice === "card_deposit" ? `Deposit — ${t.name}` : t.name,
-          description: `${startDate} to ${endDate} · Booking ${booking.reference}`,
-        },
-      },
-    }],
+    customer_creation: "always",
+    billing_address_collection: "required",
+    automatic_tax: { enabled: true },
+    payment_intent_data: { setup_future_usage: "off_session", description: `${t.name} ${startDate} to ${endDate} · Booking ${booking.reference}` },
+    line_items: lines,
     metadata: {
       booking_id: booking.id,
       charge_kind: choice === "card_deposit" ? "deposit" : "full",
@@ -311,3 +327,6 @@ export default withErrors(async (req: Request) => {
 
   return json({ mode: "card", checkout_url: session.url, reference: booking.reference, booking_id: booking.id });
 });
+
+// Abuse guard: per-IP limit, enforced by Netlify before the function runs.
+export const config: Config = { rateLimit: { windowLimit: 10, windowSize: 60, aggregateBy: ["ip", "domain"] } } as Config; // windowLimit postdates the installed @netlify/functions types

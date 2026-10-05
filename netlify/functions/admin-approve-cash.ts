@@ -37,10 +37,11 @@ export default adminHandler("staff", async (req, user) => {
   const collected = !!body.mark_collected;
   const amount = collected ? Math.min(body.amount_cents ?? booking.amount_total_cents, booking.amount_total_cents) : 0;
 
-  await assignUnitAndConfirm(booking.id, {
+  const confirmed = await assignUnitAndConfirm(booking.id, {
     payment_status: collected ? "paid" : "unpaid",
     amount_paid_cents: amount,
   });
+  if (!confirmed) return badRequest("No capacity left for those dates. Reschedule or reject this booking.");
 
   if (collected) {
     await db.from("payments").insert({
