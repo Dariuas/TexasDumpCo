@@ -329,6 +329,8 @@ async function openBooking(id) {
           && !(b.flags || []).includes("quote_requested") && b.amount_total_cents > b.amount_paid_cents ? `
         <button class="btn btn-primary btn-sm" data-act="balance-link">Email pay link for balance</button>
         ${b.stripe_payment_method_id ? '<button class="btn btn-ghost btn-sm" data-act="balance-charge">Charge saved card for balance</button>' : ""}` : ""}
+      ${b.payment_method === "card" && b.stripe_checkout_session_id && b.payment_status === "unpaid" ? `
+        <button class="btn btn-primary btn-sm" data-act="sync-payment" title="Use when the customer paid but the booking still shows unpaid">Check payment in Stripe</button>` : ""}
       ${b.payment_status === "cash_pending" ? `
         <button class="btn btn-primary btn-sm" data-act="cash-approve">Approve cash</button>
         <button class="btn btn-ghost btn-sm" data-act="cash-approve-collected">Approve + collected</button>
@@ -397,6 +399,10 @@ async function openBooking(id) {
         const amt = prompt("Final agreed price in dollars, before tax:", (b.amount_total_cents / 100).toFixed(2)); if (!amt) return;
         await post("admin-collect-payment", { booking_id: id, action: "finalize_quote", amount_cents: cents(amt) });
         toast("Price set — booking confirmed, customer emailed. Use \"Email pay link\" to collect."); refresh();
+      } else if (act === "sync-payment") {
+        const r = await post("admin-sync-payment", { booking_id: id });
+        toast(r.paid ? `Payment found — booking ${r.status}, ${String(r.payment_status).replace(/_/g, " ")}` : r.message);
+        refresh(); render(currentView());
       } else if (act === "balance-link") {
         if (!confirm("Email the customer a Stripe pay link for the remaining balance (tax added by Stripe)?")) return;
         const r = await post("admin-collect-payment", { booking_id: id, action: "send_link" });
@@ -694,7 +700,8 @@ views.availability = async (main) => {
   const shift = shiftRes.shift || { enabled: true, anchor_date: "2026-10-06", on_days: 2, off_days: 4 };
   main.innerHTML = `
     <h2>Availability &amp; Blackouts</h2>
-    ${me.role === "admin" ? `<div class="form"><h3>Owner shift schedule</h3>
+    <div id="ops-cal"></div>
+    ${me.role === "admin" ? `<details class="section-fold"><summary><h3>Shift pattern (repeat for 12 months)</h3></summary><div class="form"><h3>Owner shift schedule</h3>
       ${!shiftSaved ? `<p style="background:#fde8e8;border:1px solid #d9a0a0;color:#7a1f1f;border-radius:4px;padding:8px 10px;margin:0 0 8px;font-size:.85rem"><strong>Not active yet.</strong> This pattern has never been saved, so customers can still book shift days. Check the dates and click Save below.</p>`
         : !autoAll.length && shift.enabled ? `<p style="background:#fde8e8;border:1px solid #d9a0a0;color:#7a1f1f;border-radius:4px;padding:8px 10px;margin:0 0 8px;font-size:.85rem"><strong>No upcoming shift blocks.</strong> Click Save below to rebuild them.</p>` : ""}
       <p class="hint">Shift days are blocked automatically for customers. Repeats forever on the pattern below. Change the first shift date any time his schedule moves, then save.</p>
@@ -714,7 +721,7 @@ views.availability = async (main) => {
       <div class="table-wrap"><table class="table"><thead><tr><th>Start</th><th>End</th><th></th></tr></thead>
       <tbody id="auto-rows">${autoAll.slice(0, 12).map((b) => `<tr data-id="${b.id}" style="cursor:default"><td><input type="date" class="ab-start" value="${b.start_at.slice(0, 10)}"></td><td><input type="date" class="ab-end" value="${b.end_at.slice(0, 10)}"></td><td class="nowrap"><button class="btn btn-primary btn-sm" data-ab-save>Save</button> <button class="btn btn-ghost btn-sm" data-ab-del>Remove</button></td></tr>`).join("") || '<tr><td colspan="3" class="muted">None.</td></tr>'}</tbody></table></div>
       ${autoAll.length > 12 ? `<p class="hint">Showing the next 12 of ${autoAll.length}.</p>` : ""}
-    </div>` : ""}
+    </div></details>` : ""}
     <p class="hint">Blackout days have no deliveries or pickups — for holidays, shifts, full trucks, or maintenance. A rental can still run across them; customers just cannot start or end on one.</p>
     <div class="form"><h3>Add blackout</h3>
       <div class="row three">
@@ -728,6 +735,8 @@ views.availability = async (main) => {
     <h3>Your blackout days</h3><p class="hint">One-off days you block yourself (shift days above are handled automatically).</p>
     <div class="table-wrap"><table class="table"><thead><tr><th>Start</th><th>End</th><th>Scope</th><th>Reason</th><th></th></tr></thead>
     <tbody>${blackouts.map((b) => `<tr><td>${b.start_at.slice(0, 10)}</td><td>${b.end_at.slice(0, 10)}</td><td>${b.scope === "all" ? "All" : (types.find((t) => t.id === b.type_id)?.name || "type")}</td><td>${esc(b.reason || "")}</td><td><button class="btn btn-ghost btn-sm" data-del="${b.id}">Del</button></td></tr>`).join("") || '<tr><td class="muted" colspan="5">None.</td></tr>'}</tbody></table></div>`;
+  mountOpsCalendar($("#ops-cal"), allBlackouts);
+
   if (me.role === "admin") guarded($("#sh-save"), async () => {
     try {
       const r = await post("admin-shift-schedule", { enabled: $("#sh-enabled").checked, anchor_date: $("#sh-anchor").value, on_days: +$("#sh-on").value, off_days: +$("#sh-off").value, from_date: $("#sh-from").value });
@@ -756,6 +765,130 @@ views.availability = async (main) => {
   });
   main.querySelectorAll("[data-del]").forEach((b) => b.addEventListener("click", async () => { await post("admin-blackouts", { action: "delete", id: b.dataset.del }); render("availability"); }));
 };
+
+// ---------- operations calendar (Availability tab) ----------
+// Month grid: owner shift days and closed days highlighted, every booking's
+// drop-off (🗑️🟢) and pickup (🛑) placed from its dates, junk jobs (🚚) on their day.
+// Click a day to block / unblock it; click a booking to open it.
+const SHIFT_REASON = "Owner on shift (auto)";
+const MONTH_LABELS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+const addDaysStr = (d, n) => { const x = new Date(d + "T00:00:00Z"); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
+let opsView = null;
+
+function mountOpsCalendar(box, blackouts) {
+  const canEdit = me.role === "admin" || me.role === "staff";
+  const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
+  if (!opsView) opsView = { y: +today.slice(0, 4), m: +today.slice(5, 7) };
+  let mode = "shift";
+  try { mode = sessionStorage.getItem("opsMode") || "shift"; } catch {}
+
+  const draw = async () => {
+    const { y, m } = opsView;
+    const mm = String(m).padStart(2, "0");
+    const days = new Date(Date.UTC(y, m, 0)).getUTCDate();
+    const first = `${y}-${mm}-01`, last = `${y}-${mm}-${String(days).padStart(2, "0")}`;
+    box.innerHTML = `<p class="muted">Loading calendar…</p>`;
+    let bookings = [];
+    try { ({ bookings } = await authFetch(`admin-bookings?range_from=${first}&range_to=${last}`)); }
+    catch (e) { box.innerHTML = `<p class="muted">${esc(e.message)}</p>`; return; }
+
+    const blockFor = (d) => blackouts.find((b) => b.start_at.slice(0, 10) <= d && b.end_at.slice(0, 10) >= d);
+    const chip = (b, kind) => {
+      const icon = kind === "drop" ? "🗑️🟢" : kind === "pick" ? "🛑" : "🚚";
+      const label = kind === "drop" ? "Drop-off" : kind === "pick" ? "Pickup" : "Job";
+      return `<button type="button" class="ops-chip ops-${kind}" data-bk="${b.id}" title="${label}: ${esc(b.customer_name)} · ${esc(b.reference)} · ${esc(b.delivery_address || "")}">${icon} ${esc(String(b.customer_name).split(" ")[0])}</button>`;
+    };
+
+    let cells = "";
+    const offset = new Date(first + "T00:00:00Z").getUTCDay();
+    for (let i = 0; i < offset; i++) cells += `<div class="ops-cell ops-blank"></div>`;
+    for (let d = 1; d <= days; d++) {
+      const ds = `${y}-${mm}-${String(d).padStart(2, "0")}`;
+      const bl = blockFor(ds);
+      const isShift = bl && bl.reason === SHIFT_REASON;
+      const chips = [];
+      let truckDay = false;
+      for (const b of bookings) {
+        if (b.service === "junk") {
+          if (b.start_date <= ds && b.end_date >= ds) { chips.push(chip(b, "job")); truckDay = true; }
+          continue;
+        }
+        if (b.start_date === ds) { chips.push(chip(b, "drop")); truckDay = true; }
+        if (b.end_date === ds) { chips.push(chip(b, "pick")); truckDay = true; }
+      }
+      const conflict = bl && truckDay;
+      cells += `<div class="ops-cell${isShift ? " ops-shift" : bl ? " ops-closed" : ""}${ds === today ? " ops-today" : ""}${conflict ? " ops-conflict" : ""}${canEdit ? " ops-editable" : ""}" data-day="${ds}">
+        <div class="ops-day"><span>${d}</span>${bl ? `<span class="ops-tag">${isShift ? "Shift" : esc(bl.reason || "Closed")}</span>` : ""}</div>
+        ${conflict ? `<div class="ops-warn" title="A drop-off or pickup is scheduled on a blocked day">⚠ truck needed</div>` : ""}
+        <div class="ops-chips">${chips.join("")}</div>
+      </div>`;
+    }
+
+    box.innerHTML = `
+      <div class="ops-cal">
+        <div class="ops-head">
+          <button type="button" class="btn btn-ghost btn-sm" data-ops-nav="-1" aria-label="Previous month">‹</button>
+          <strong>${MONTH_LABELS[m - 1]} ${y}</strong>
+          <button type="button" class="btn btn-ghost btn-sm" data-ops-nav="1" aria-label="Next month">›</button>
+          <button type="button" class="btn btn-ghost btn-sm" data-ops-today>Today</button>
+        </div>
+        ${canEdit ? `<div class="ops-mode">Click a day to:
+          <label class="chk"><input type="radio" name="ops-mode" value="shift" ${mode === "shift" ? "checked" : ""}> mark / unmark a <strong>shift day</strong></label>
+          <label class="chk"><input type="radio" name="ops-mode" value="closed" ${mode === "closed" ? "checked" : ""}> mark / unmark <strong>closed</strong> (holiday, truck down)</label>
+        </div>` : ""}
+        <div class="ops-grid ops-weekdays">${["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].map((w) => `<div>${w}</div>`).join("")}</div>
+        <div class="ops-grid">${cells}</div>
+        <div class="ops-legend">
+          <span><span class="ops-sw ops-shift"></span> Owner on shift</span>
+          <span><span class="ops-sw ops-closed"></span> Closed</span>
+          <span>🗑️🟢 Drop-off</span><span>🛑 Pickup</span><span>🚚 Junk / crew job</span>
+          <span>⚠ Drop-off or pickup on a blocked day</span>
+        </div>
+        <p class="hint">Customers cannot start or end a rental on a shift or closed day. Changes here apply immediately.</p>
+      </div>`;
+
+    box.querySelectorAll("[data-ops-nav]").forEach((b) => b.addEventListener("click", () => {
+      const n = opsView.m + Number(b.dataset.opsNav);
+      opsView = n < 1 ? { y: opsView.y - 1, m: 12 } : n > 12 ? { y: opsView.y + 1, m: 1 } : { y: opsView.y, m: n };
+      draw();
+    }));
+    box.querySelector("[data-ops-today]").addEventListener("click", () => { opsView = { y: +today.slice(0, 4), m: +today.slice(5, 7) }; draw(); });
+    box.querySelectorAll('input[name="ops-mode"]').forEach((r) => r.addEventListener("change", () => {
+      mode = r.value; try { sessionStorage.setItem("opsMode", mode); } catch {}
+    }));
+    box.querySelectorAll("[data-bk]").forEach((c) => c.addEventListener("click", (e) => { e.stopPropagation(); openBooking(c.dataset.bk); }));
+    if (canEdit) box.querySelectorAll(".ops-cell[data-day]").forEach((cell) => cell.addEventListener("click", async () => {
+      const day = cell.dataset.day;
+      const bl = blockFor(day);
+      try {
+        if (bl) {
+          const what = bl.reason === SHIFT_REASON ? "shift day" : `closed day (${bl.reason || "Closed"})`;
+          if (!confirm(`Unblock ${day}? It is a ${what}. Customers will be able to schedule drop-offs and pickups that day.`)) return;
+          await unblockDay(bl, day);
+          toast(`${day} unblocked`);
+        } else {
+          const reason = mode === "shift" ? SHIFT_REASON : prompt(`Close ${day}. Reason:`, "Closed");
+          if (reason === null) return;
+          await post("admin-blackouts", { start_at: `${day}T00:00:00Z`, end_at: `${day}T23:59:59Z`, type_id: null, reason: reason || "Closed" });
+          toast(mode === "shift" ? `${day} marked as shift day` : `${day} closed`);
+        }
+        ({ blackouts } = await authFetch("admin-blackouts"));
+        draw();
+      } catch (e) { alert(e.message); }
+    }));
+  };
+  draw();
+}
+
+// Remove one day from a blackout block: delete it, trim an end, or split it in two.
+async function unblockDay(bl, day) {
+  const a = bl.start_at.slice(0, 10), b = bl.end_at.slice(0, 10);
+  if (a === day && b === day) return post("admin-blackouts", { action: "delete", id: bl.id });
+  if (a === day) return post("admin-blackouts", { action: "update", id: bl.id, start_at: `${addDaysStr(day, 1)}T00:00:00Z`, end_at: bl.end_at });
+  if (b === day) return post("admin-blackouts", { action: "update", id: bl.id, start_at: bl.start_at, end_at: `${addDaysStr(day, -1)}T23:59:59Z` });
+  await post("admin-blackouts", { action: "update", id: bl.id, start_at: bl.start_at, end_at: `${addDaysStr(day, -1)}T23:59:59Z` });
+  await post("admin-blackouts", { start_at: `${addDaysStr(day, 1)}T00:00:00Z`, end_at: bl.end_at, type_id: bl.type_id, reason: bl.reason });
+}
 
 // ==================================================================
 //  PROMO CODES (admin)

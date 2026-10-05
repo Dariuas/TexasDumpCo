@@ -5,7 +5,7 @@ import { supabaseAdmin } from "./_shared/supabase";
 const BUCKET = "booking-uploads";
 
 // GET /api/admin-bookings                -> filtered list
-//   ?status=&service=&from=&to=&q=&payment_status=
+//   ?status=&service=&from=&to=&q=&payment_status=&range_from=&range_to=
 // GET /api/admin-bookings?id=<uuid>      -> full detail + photos (signed) + payments
 export default adminHandler("staff", async (req) => {
   const db = supabaseAdmin();
@@ -46,6 +46,10 @@ export default adminHandler("staff", async (req) => {
   if (status) q = q.eq("status", status);
   if (service) q = q.eq("service", service);
   if (paymentStatus) q = q.eq("payment_status", paymentStatus);
+  // Bookings active at any point in [range_from, range_to] (drop-offs and pickups for the admin calendar).
+  const rangeFrom = url.searchParams.get("range_from");
+  const rangeTo = url.searchParams.get("range_to");
+  if (rangeFrom && rangeTo) q = q.lte("start_date", rangeTo).gte("end_date", rangeFrom).neq("status", "canceled");
   if (from) q = q.gte("start_date", from);
   if (to) q = q.lte("start_date", to);
   if (search) q = q.or(`customer_name.ilike.%${search}%,reference.ilike.%${search}%,customer_email.ilike.%${search}%,customer_phone.ilike.%${search}%`);
