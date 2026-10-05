@@ -41,6 +41,7 @@ export function mountAvailabilityCalendar(container, opts) {
   let destroyed = false;
 
   container.classList.add("avail-cal");
+  container.innerHTML = `<p class="ac-loading" role="status">Loading dates…</p>`;
 
   async function fetchMonth() {
     const res = await fetch(`${apiBase}/availability-calendar?type=${state.typeId}&days=${state.days}&month=${monthKey(view.y, view.m)}`);
@@ -96,7 +97,7 @@ export function mountAvailabilityCalendar(container, opts) {
   }
 
   async function load() {
-    container.innerHTML = `<p class="ac-loading">Loading availability…</p>`;
+    container.innerHTML = `<p class="ac-loading" role="status">Loading dates…</p>`;
     try {
       const res = await fetchMonth();
       render(res.availability);
