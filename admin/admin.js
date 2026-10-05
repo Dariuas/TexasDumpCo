@@ -459,6 +459,9 @@ views.inventory = async (main) => {
   main.innerHTML = `
     <h2>Inventory &amp; Pricing</h2>
     <p class="hint">Matches the TXD Master Pricing &amp; Phone Call Guide. Contractor rates and judgment fees are reference-only — apply them via <strong>Bookings → + New Booking (Phone Quote)</strong>, see Settings.</p>
+    <h3>Weight limits &amp; overage ${isAdmin ? "" : "<span class='hint'>(read-only — admin edits)</span>"}</h3>
+    <p class="hint">Weight included with each dumpster rental. When you record a scale weight on a booking, anything over the limit is billed at the per-ton rate (plus tax). Leave the limit blank for no overage.</p>
+    <div id="weights"></div>
     <h3>Types &amp; pricing ${isAdmin ? "" : "<span class='hint'>(read-only — admin edits pricing)</span>"}</h3>
     <div id="types"></div>
     ${isAdmin ? `<button class="btn btn-ghost btn-sm" id="add-type">+ Add type</button> <button class="btn btn-ghost btn-sm" id="sync-stripe">Sync all to Stripe</button>` : ""}
@@ -470,6 +473,29 @@ views.inventory = async (main) => {
     <div id="addons"></div></details>`;
 
   const typeName = (id) => types.find((t) => t.id === id)?.name || "?";
+
+  const renderWeights = () => {
+    const rows = types.filter((t) => t.service === "dumpster" && t.active);
+    const dis = isAdmin ? "" : "disabled";
+    $("#weights").innerHTML = rows.length ? `<div class="table-wrap"><table class="table"><thead><tr>
+        <th>Dumpster type</th><th>Included weight (tons)</th><th>Overage per ton ($)</th>${isAdmin ? "<th></th>" : ""}</tr></thead><tbody>
+      ${rows.map((t) => `<tr data-id="${t.id}">
+        <td>${esc(t.name)}</td>
+        <td><input class="w-limit" type="number" step="0.1" min="0" placeholder="no limit" value="${t.weight_limit_tons ?? ""}" ${dis} style="max-width:110px"></td>
+        <td><input class="w-fee" type="number" step="0.01" min="0" value="${(t.overage_fee_cents / 100).toFixed(2)}" ${dis} style="max-width:110px"></td>
+        ${isAdmin ? `<td><button class="btn btn-primary btn-sm" data-save-weight>Save</button></td>` : ""}
+      </tr>`).join("")}
+      </tbody></table></div>` : '<p class="muted">No active dumpster types.</p>';
+    if (isAdmin) $("#weights").querySelectorAll("[data-save-weight]").forEach((btn) => guarded(btn, async () => {
+      const tr = btn.closest("tr");
+      const lim = tr.querySelector(".w-limit").value.trim();
+      try {
+        await post("admin-inventory", { action: "update_weight", id: tr.dataset.id, weight_limit_tons: lim === "" ? null : parseFloat(lim), overage_fee_cents: cents(tr.querySelector(".w-fee").value || "0") });
+        toast("Weight limit saved"); render("inventory");
+      } catch (e) { alert(e.message); }
+    }));
+  };
+  renderWeights();
 
   const renderTypes = () => {
     const SERVICE_TITLE = { dumpster: "Dumpster rentals", junk: "Junk hauling & crew jobs" };

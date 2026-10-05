@@ -69,6 +69,21 @@ export default adminHandler("staff", async (req, user) => {
       const stripe_sync_error = await trySync(() => syncType(body.id));
       return json({ type: data, stripe_sync_error });
     }
+    // Included weight + per-ton overage only (the Weight limits section). Feeds admin-record-weight.
+    case "update_weight": {
+      if (!isAdmin) return forbidden("Admin required to edit weight limits");
+      if (!body.id) return badRequest("id required");
+      const limit = body.weight_limit_tons === null || body.weight_limit_tons === "" ? null : Number(body.weight_limit_tons);
+      const fee = Math.round(Number(body.overage_fee_cents ?? 0));
+      if (limit !== null && (!Number.isFinite(limit) || limit <= 0 || limit > 99)) return badRequest("Weight limit must be between 0 and 99 tons, or blank for no limit");
+      if (!Number.isFinite(fee) || fee < 0) return badRequest("Overage per ton must be 0 or more");
+      if (limit !== null && fee === 0) return badRequest("Set an overage price per ton, or clear the weight limit");
+      const { data, error } = await db.from("dumpster_types")
+        .update({ weight_limit_tons: limit, overage_fee_cents: fee }).eq("id", body.id).select().single();
+      if (error) throw new Error(error.message);
+      await audit({ actor: user.email!, action: "type.weight", entity: "dumpster_types", entityId: body.id, detail: { weight_limit_tons: limit, overage_fee_cents: fee } });
+      return json({ type: data });
+    }
     case "delete_type": {
       if (!isAdmin) return forbidden("Admin required");
       if (!body.id) return badRequest("id required");
