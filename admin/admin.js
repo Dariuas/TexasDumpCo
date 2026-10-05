@@ -1018,6 +1018,14 @@ views.settings = async (main) => {
   const v = (k, d = "") => s[k] ?? d;
   main.innerHTML = `
     <h2>Settings</h2>
+    ${me.role === "admin" ? `<div class="form"><h3>Google Calendar</h3>
+      <p class="hint">Confirmed bookings appear in green. Requests waiting on you (quote requests, cash bookings to approve, paid bookings with no container free) appear in yellow as "⏳ PENDING" and update when you confirm or cancel them.</p>
+      <div class="actions">
+        <button class="btn btn-ghost btn-sm" id="gc-test">Test Google Calendar</button>
+        <button class="btn btn-ghost btn-sm" id="gc-backfill">Put all upcoming bookings on the calendar</button>
+      </div>
+      <p class="hint" id="gc-msg"></p>
+    </div>` : ""}
     <div class="form">
       <div class="row two">
         <label>Company name<input id="s-name" value="${esc(v("company_name"))}"></label>
@@ -1072,6 +1080,20 @@ views.settings = async (main) => {
       <p class="hint">One per line. Shown as a dropdown in online booking and phone-quote entry.</p>
       <div class="actions"><button class="btn btn-ghost btn-sm" id="s-sources-save">Save</button></div>
     </div>`;
+
+  if (me.role === "admin") {
+    const gcMsg = (ok, text) => { const m = $("#gc-msg"); m.textContent = text; m.style.color = ok ? "#1e7a34" : "#c0392b"; };
+    guarded($("#gc-test"), async () => {
+      try { const r = await post("admin-calendar", { action: "test" }); gcMsg(r.ok, r.ok ? r.message : r.error); }
+      catch (e) { gcMsg(false, e.message); }
+    });
+    guarded($("#gc-backfill"), async () => {
+      try {
+        const r = await post("admin-calendar", { action: "backfill" });
+        gcMsg(r.ok, r.error || `${r.synced} booking(s) synced to Google Calendar${r.failed ? `, ${r.failed} failed (flagged calendar_failed)` : ""}.`);
+      } catch (e) { gcMsg(false, e.message); }
+    });
+  }
 
   // seed the editor from the saved list, or from the legacy reference values on first use
   const FEE_LABELS = { dry_run_or_inaccessible_cents: "Dry run / blocked access", late_cancellation_lt24h_cents: "Late cancellation (under 24 hrs)", truck_already_dispatched_cents: "Cancel after truck dispatched", overfill_rearrangement_from_cents: "Overfill / rearrange load", long_carry_from_cents: "Long carry", stairs_from_cents: "Stairs", multi_floor_heavy_furniture_from_cents: "Multi-floor heavy furniture", same_day_priority_from_cents: "Same-day priority", after_hours_from_cents: "After-hours service" };

@@ -5,7 +5,7 @@ import { stripe } from "./_shared/stripe";
 import { ensureFixedProduct, ensureTaxRate } from "./_shared/stripe-catalog";
 import { loadSettings, num } from "./_shared/settings";
 import { assignUnitAndConfirm } from "./_shared/confirm";
-import { createCalendarEvent } from "./_shared/google-calendar";
+import { syncBookingEvent } from "./_shared/booking-calendar";
 import { sendEmail, esc, bookingConfirmationHtml } from "./_shared/email";
 import { audit } from "./_shared/audit";
 
@@ -56,18 +56,7 @@ export default adminHandler("staff", async (req, user) => {
     }).eq("id", b.id);
     if (error) throw new Error(error.message);
 
-    if (!b.google_event_id) {
-      try {
-        const eventId = await createCalendarEvent({
-          summary: `${typeName} — ${b.customer_name} (${b.reference}) [QUOTE]`,
-          description: `Phone: ${b.customer_phone}\nEmail: ${b.customer_email}\nNotes: ${b.notes ?? "-"}\nRef: ${b.reference}\nQuoted: ${dollars(amount)} + tax`,
-          location: b.delivery_address, startDate: b.start_date, endDate: b.end_date,
-        });
-        if (eventId) await db.from("bookings").update({ google_event_id: eventId }).eq("id", b.id);
-      } catch (err) {
-        console.error("[finalize_quote] calendar event failed:", (err as Error).message);
-      }
-    }
+    await syncBookingEvent(b.id); // PENDING quote event becomes the confirmed booking
     await sendEmail(b.customer_email, `Booking confirmed — ${b.reference}`,
       bookingConfirmationHtml({
         reference: b.reference, customer_name: b.customer_name, typeName,

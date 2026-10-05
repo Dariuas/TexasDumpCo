@@ -2,7 +2,7 @@ import { adminHandler } from "./_shared/admin";
 import { json, badRequest, readJson } from "./_shared/response";
 import { supabaseAdmin } from "./_shared/supabase";
 import { assignUnitAndConfirm } from "./_shared/confirm";
-import { createCalendarEvent } from "./_shared/google-calendar";
+import { syncBookingEvent } from "./_shared/booking-calendar";
 import { sendEmail, bookingConfirmationHtml } from "./_shared/email";
 import { audit } from "./_shared/audit";
 
@@ -109,13 +109,7 @@ export default adminHandler("staff", async (req, user) => {
     });
   }
 
-  const eventId = await createCalendarEvent({
-    summary: `${type.name} — ${booking.customer_name} (${booking.reference}) [PHONE]`,
-    description: `Phone: ${booking.customer_phone}\nRef: ${booking.reference}\nStaff-entered booking.`,
-    location: booking.delivery_address,
-    startDate, endDate,
-  });
-  if (eventId) await db.from("bookings").update({ google_event_id: eventId }).eq("id", booking.id);
+  await syncBookingEvent(booking.id);
 
   if (body.customer_email) {
     await sendEmail(body.customer_email, `Booking confirmed — ${booking.reference}`,

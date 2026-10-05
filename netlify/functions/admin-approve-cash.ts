@@ -2,7 +2,7 @@ import { adminHandler } from "./_shared/admin";
 import { json, badRequest, notFound, readJson } from "./_shared/response";
 import { supabaseAdmin } from "./_shared/supabase";
 import { assignUnitAndConfirm } from "./_shared/confirm";
-import { createCalendarEvent, deleteCalendarEvent } from "./_shared/google-calendar";
+import { syncBookingEvent } from "./_shared/booking-calendar";
 import { sendEmail, bookingConfirmationHtml } from "./_shared/email";
 import { audit } from "./_shared/audit";
 
@@ -28,8 +28,8 @@ export default adminHandler("staff", async (req, user) => {
   if (booking.status !== "pending") return badRequest(`Booking is already ${booking.status}`);
 
   if (body.decision === "reject") {
-    if (booking.google_event_id) await deleteCalendarEvent(booking.google_event_id);
-    await db.from("bookings").update({ status: "canceled", google_event_id: null }).eq("id", booking.id);
+    await db.from("bookings").update({ status: "canceled" }).eq("id", booking.id);
+    await syncBookingEvent(booking.id); // removes the PENDING event
     await audit({ actor: user.email!, action: "cash.reject", entity: "bookings", entityId: booking.id });
     return json({ ok: true, status: "canceled" });
   }
@@ -57,15 +57,7 @@ export default adminHandler("staff", async (req, user) => {
 
   const { data: type } = await db.from("dumpster_types").select("name").eq("id", booking.type_id).maybeSingle();
   const typeName = type?.name ?? "Booking";
-  if (!booking.google_event_id) {
-    const eventId = await createCalendarEvent({
-      summary: `${typeName} — ${booking.customer_name} (${booking.reference}) [CASH]`,
-      description: `Phone: ${booking.customer_phone}\nEmail: ${booking.customer_email}\nRef: ${booking.reference}\nPayment: cash ${collected ? "collected" : "on delivery"}`,
-      location: booking.delivery_address,
-      startDate: booking.start_date, endDate: booking.end_date,
-    });
-    if (eventId) await db.from("bookings").update({ google_event_id: eventId }).eq("id", booking.id);
-  }
+  await syncBookingEvent(booking.id); // PENDING event becomes the confirmed booking
 
   await sendEmail(booking.customer_email, `Booking confirmed — ${booking.reference}`,
     bookingConfirmationHtml({

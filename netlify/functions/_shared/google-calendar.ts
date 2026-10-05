@@ -23,6 +23,11 @@ export interface CalEventInput {
   location?: string;
   startDate: string; // YYYY-MM-DD
   endDate: string; // YYYY-MM-DD (inclusive last rental day)
+  colorId?: string; // Google Calendar event color
+}
+
+export function calendarConfigured(): boolean {
+  return !!(optionalEnv("GOOGLE_SERVICE_ACCOUNT_JSON") && optionalEnv("GOOGLE_CALENDAR_ID"));
 }
 
 // All-day events spanning the rental. Google end date is exclusive, so +1 day.
@@ -33,6 +38,7 @@ function toBody(input: CalEventInput) {
     summary: input.summary,
     description: input.description,
     location: input.location,
+    ...(input.colorId ? { colorId: input.colorId } : {}),
     start: { date: input.startDate },
     end: { date: end.toISOString().slice(0, 10) },
   };

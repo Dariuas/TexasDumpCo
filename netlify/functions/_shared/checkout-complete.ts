@@ -1,7 +1,7 @@
 import Stripe from "stripe";
 import { supabaseAdmin } from "./supabase";
 import { stripe } from "./stripe";
-import { createCalendarEvent } from "./google-calendar";
+import { syncBookingEvent } from "./booking-calendar";
 import { sendEmail, esc, bookingConfirmationHtml, adminAlertHtml, adminAlertTo } from "./email";
 import { assignUnitAndConfirm } from "./confirm";
 
@@ -76,6 +76,7 @@ export async function processPaidCheckout(session: Stripe.Checkout.Session): Pro
         flags: [...flags],
       }).eq("id", booking.id);
       if (parkErr) throw new Error(`Could not park paid booking: ${parkErr.message}`);
+      await syncBookingEvent(booking.id); // shows on the calendar as PENDING (paid, needs a container)
       await recordPayment(db, booking.id, chargeKind, paid, pi);
       if (alertTo) await sendEmail(alertTo, `ACTION NEEDED: paid booking ${booking.reference} has no capacity`,
         `<div style="font-family:Arial,sans-serif"><h2>Paid booking could not be confirmed</h2>
@@ -107,24 +108,8 @@ export async function processPaidCheckout(session: Stripe.Checkout.Session): Pro
   // 3. Calendar. A Google failure must never block the confirmation email.
   const { data: type } = await db.from("dumpster_types").select("name").eq("id", booking.type_id).maybeSingle();
   const typeName = type?.name ?? "Booking";
-  if (!booking.google_event_id) {
-    try {
-      const eventId = await createCalendarEvent({
-        summary: `${typeName} — ${booking.customer_name} (${booking.reference})`,
-        description: `Phone: ${booking.customer_phone}
-Email: ${booking.customer_email}
-Notes: ${booking.notes ?? "-"}
-Ref: ${booking.reference}`,
-        location: booking.delivery_address,
-        startDate: booking.start_date,
-        endDate: booking.end_date,
-      });
-      if (eventId) await db.from("bookings").update({ google_event_id: eventId }).eq("id", booking.id);
-    } catch (err) {
-      console.error("[webhook] calendar event failed:", (err as Error).message);
-      flags.add("calendar_failed");
-    }
-  }
+  if (await syncBookingEvent(booking.id)) flags.delete("calendar_failed");
+  else flags.add("calendar_failed");
 
   // 4. Emails, once (tracked with a flag so retries don't double-send).
   if (!flags.has("confirm_email_sent")) {

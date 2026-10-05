@@ -9,6 +9,7 @@ import { loadSettings, bool, num } from "./_shared/settings";
 import { buildQuote, contractorDiscountCents, likeLiteral, DumpsterType, PromoRow, DurationTier, AddonSelection, DistanceZone } from "./_shared/pricing";
 import { checkChallenge, agreementHash } from "./_shared/agreement-verify";
 import { typeAvailability } from "./_shared/availability";
+import { syncBookingEvent } from "./_shared/booking-calendar";
 import { sendEmail, adminAlertHtml, adminAlertTo } from "./_shared/email";
 import { optionalEnv } from "./_shared/env";
 
@@ -269,6 +270,7 @@ export default withErrors(async (req: Request) => {
   // ---- quote-request path: cleanouts, heavy material, contractor-style jobs,
   // or any 35+ mile delivery. Never charged automatically. ----
   if (quote.needs_quote) {
+    await syncBookingEvent(booking.id); // on the calendar as PENDING until staff set the price
     if (alertTo) {
       await sendEmail(alertTo, `Quote requested — ${booking.reference}`,
         adminAlertHtml({
@@ -282,6 +284,7 @@ export default withErrors(async (req: Request) => {
 
   // ---- cash path: no charge, await approval ----
   if (choice === "cash") {
+    await syncBookingEvent(booking.id); // on the calendar as PENDING until staff approve
     if (alertTo) {
       await sendEmail(alertTo, `Cash booking ${booking.reference} needs approval`,
         adminAlertHtml({
