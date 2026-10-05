@@ -306,7 +306,7 @@ async function onPhotoPick(e) {
 // ---------- agreement ----------
 const I18N = {
   en: {
-    title: "Rental agreement", name: "Type your full name to sign", sig: "Draw your signature", clear: "Clear",
+    title: "Rental agreement", serviceTitle: "Service agreement", name: "Type your full name to sign", sig: "Draw your signature", clear: "Clear",
     nameHint: "Must match the name on your booking exactly.",
     acks: {
       read: "I read this whole agreement and my order details.",
@@ -320,7 +320,7 @@ const I18N = {
     sent: "Code sent. Check your inbox (and spam).", ok: "Email verified ✓", bad: "That code did not work.",
   },
   es: {
-    title: "Contrato de renta", name: "Escriba su nombre completo para firmar", sig: "Dibuje su firma", clear: "Borrar",
+    title: "Contrato de renta", serviceTitle: "Contrato de servicio", name: "Escriba su nombre completo para firmar", sig: "Dibuje su firma", clear: "Borrar",
     nameHint: "Debe coincidir exactamente con el nombre de su reservación.",
     acks: {
       read: "Leí todo este contrato y los detalles de mi pedido.",
@@ -354,8 +354,12 @@ function agreementShown() {
 }
 function applyAgreementLang() {
   $("#agreement-body").innerHTML = agreementShown();
+  // The signed template is the dumpster rental text; for crew-hauled services at least show the right title.
+  const isRental = (state.category || "").startsWith("roll_off");
+  const firstHeading = $("#agreement-body h3");
+  if (!isRental && firstHeading) firstHeading.textContent = t("serviceTitle");
   document.querySelectorAll("#lang-toggle button").forEach((b) => b.classList.toggle("active", b.dataset.lang === state.agrLang));
-  $("#agr-title").textContent = t("title");
+  $("#agr-title").textContent = isRental ? t("title") : t("serviceTitle");
   $("#lbl-name").textContent = t("name");
   $("#lbl-sig").textContent = t("sig");
   $("#sig-clear").textContent = t("clear");
