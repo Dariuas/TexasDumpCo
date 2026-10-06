@@ -33,12 +33,14 @@ const state = {
   days: null,
   startDate: null,
   timeWindow: null,
-  zone: null,       // { code, label, fee_cents, quote_only }
+  zone: null,       // fallback mileage zone, only when distance can't be measured
+  distance: null,   // { address, oneway_miles, round_trip_miles, fee_cents, quote_only } from distance-quote
+  distanceMode: "measure", // "measure" (from the yard) | "zones" (not configured) | "unverified" (address not found)
   photos: [],
   selectedAddonIds: [],
   promo: null,
   step: "category",
-  contractor: null,        // { number, discount_cents } once verified by the server
+  contractor: null,        // { number, discount_cents, tax_exempt } once verified by the server
   agrLang: "en",
   agreement: null,
   verifyToken: null,
@@ -98,7 +100,12 @@ function setupStatic() {
   if (state.config.cashAccepted) $("#cash-opt").hidden = false;
 
   document.querySelectorAll("[data-back]").forEach((b) => b.addEventListener("click", back));
-  $("#to-details").addEventListener("click", () => goStep("details"));
+  $("#to-details").addEventListener("click", onDateNext);
+  $("#c-address").addEventListener("change", () => { state.distance = null; checkDistance(); });
+  $("#c-is-contractor").addEventListener("change", () => {
+    $("#contractor-fields").hidden = !$("#c-is-contractor").checked;
+    if (!$("#c-is-contractor").checked) { state.contractor = null; $("#contractor-msg").textContent = ""; }
+  });
   $("#to-agreement").addEventListener("click", onDetailsNext);
   $("#to-payment").addEventListener("click", () => { renderSummary(); goStep("payment"); });
   $("#c-photos").addEventListener("change", onPhotoPick);
@@ -106,7 +113,7 @@ function setupStatic() {
   setupAgreementWidgets();
   $("#c-source").innerHTML += (state.config.referralSources || []).map((x) => `<option>${x}</option>`).join("");
   $("#apply-contractor").addEventListener("click", applyContractor);
-  $("#c-email").addEventListener("change", () => { state.contractor = null; $("#contractor-msg").textContent = ""; });
+  for (const id of ["#c-email", "#c-phone"]) $(id).addEventListener("change", () => { state.contractor = null; $("#contractor-msg").textContent = ""; });
   $("#apply-promo").addEventListener("click", applyPromo);
   document.querySelectorAll('input[name="pay"]').forEach((r) => r.addEventListener("change", renderSummary));
   $("#submit-booking").addEventListener("click", submitBooking);
@@ -116,8 +123,14 @@ function setupStatic() {
 
 // ---------- step machine ----------
 function isDurationType(t) { return t && t.pricing_mode === "duration_tiers"; }
+function isContractor() { return $("#c-is-contractor").checked; }
+function distanceQuoteOnly() {
+  if (state.distanceMode === "zones") return !!(state.zone && state.zone.quote_only);
+  if (state.distanceMode === "unverified") return true;
+  return !!(state.distance && state.distance.quote_only);
+}
 function needsQuote() {
-  return (state.type && state.type.pricing_mode === "quote_only") || !!(state.zone && state.zone.quote_only);
+  return (state.type && state.type.pricing_mode === "quote_only") || distanceQuoteOnly() || isContractor();
 }
 function categoriesInCatalog() {
   const seen = new Set();
@@ -242,6 +255,42 @@ function renderDurations() {
 }
 
 // ---------- date + distance ----------
+// Driving distance from the yard is measured server-side (distance-quote); the
+// server recomputes it again at booking, so this is display only. If maps are not
+// configured, fall back to the customer picking a mileage zone.
+async function checkDistance() {
+  const addr = $("#c-address").value.trim();
+  const msg = $("#distance-msg");
+  if (!addr) { msg.textContent = ""; return; }
+  if (state.distance && state.distance.address === addr) return;
+  msg.className = "avail"; msg.textContent = "Checking distance…";
+  try {
+    const r = await api("distance-quote", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ address: addr }) });
+    if (r.configured === false) {
+      state.distanceMode = "zones"; state.distance = null;
+      $("#zone-wrap").hidden = false; msg.textContent = "";
+      return;
+    }
+    state.distanceMode = "measure";
+    state.distance = { address: addr, ...r };
+    msg.className = r.quote_only ? "avail no" : "avail ok";
+    msg.textContent = r.quote_only
+      ? `About ${r.oneway_miles} miles from our yard — that's past our online delivery area. Send the request and we'll call you with a quote.`
+      : r.fee_cents
+        ? `About ${r.oneway_miles} miles from our yard. Mileage: ${money(r.fee_cents)} (${r.round_trip_miles} mi round trip, first ${r.free_miles} free).`
+        : `About ${r.oneway_miles} miles from our yard — delivery mileage included.`;
+  } catch (err) {
+    state.distanceMode = "unverified"; state.distance = null;
+    msg.className = "avail no";
+    msg.textContent = `${err.message} You can still send a request and we'll confirm the distance.`;
+  }
+}
+async function onDateNext() {
+  if (!$("#c-address").value.trim()) { $("#c-address").focus(); alert("Please enter the delivery / service address."); return; }
+  await checkDistance();
+  goStep("details");
+}
+
 function renderZones() {
   const zones = state.config.distanceZones || [];
   $("#zone-list").innerHTML = zones.map((z, i) => `
@@ -266,9 +315,9 @@ async function onDetailsNext() {
     if (!$(sel).value.trim()) { $(sel).focus(); alert(`Please enter your ${label}.`); return; }
   }
   state.timeWindow = $("#time-window").value;
-  // Re-check the contractor number now that the item/length are final.
-  if ($("#c-contractor").value.trim()) await applyContractor(); else state.contractor = null;
-  if ($("#c-contractor").value.trim() && !state.contractor) return; // invalid number: show message, let them fix or clear it
+  // Contractor: look the account up now that contact details and the item are final.
+  // Informational only — contractor bookings are always requests our team confirms.
+  if (isContractor()) await applyContractor(); else state.contractor = null;
   loadAgreement();
   advance("details");
 }
@@ -443,16 +492,18 @@ function validateAgreement() {
   $("#agr-todo").textContent = todo.length ? `${t("todo")} ${todo.join("; ")}.` : "";
 }
 
-// contractor number -> server confirms it is approved for this email and returns the discount
+// contractor account (number, or the email/phone above) -> server confirms it is approved
+// and returns the estimated contractor discount for this item
 async function applyContractor() {
   const msg = $("#contractor-msg"), number = $("#c-contractor").value.trim();
-  if (!number) { state.contractor = null; msg.textContent = ""; return; }
-  if (!$("#c-email").value.trim()) { msg.className = "promo-msg no"; msg.textContent = "Enter your email above first."; return; }
+  const email = $("#c-email").value.trim(), phone = $("#c-phone").value.trim();
+  if (!email && !phone) { msg.className = "promo-msg no"; msg.textContent = "Enter your phone or email above first."; return; }
   try {
     const r = await api("contractor-quote", { method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ contractor_number: number, email: $("#c-email").value.trim(), type_id: state.type.id, rental_days: state.days }) });
-    state.contractor = { number: r.contractor_number, discount_cents: r.discount_cents };
-    msg.className = "promo-msg ok"; msg.textContent = r.discount_cents ? `Contractor pricing applied (−${money(r.discount_cents)}).` : "Approved contractor — no contractor discount for this item.";
+      body: JSON.stringify({ contractor_number: number || undefined, email, phone, type_id: state.type.id, rental_days: state.days }) });
+    state.contractor = { number: r.contractor_number, discount_cents: r.discount_cents, tax_exempt: !!r.tax_exempt };
+    msg.className = "promo-msg ok";
+    msg.textContent = `Contractor ${r.contractor_number} found${r.discount_cents ? ` — estimated contractor pricing −${money(r.discount_cents)}` : ""}${r.tax_exempt ? ", tax exempt" : ""}. We'll confirm your final price.`;
   } catch (err) { state.contractor = null; msg.className = "promo-msg no"; msg.textContent = err.message; }
 }
 
@@ -477,9 +528,9 @@ function computeQuote() {
   const subtotal = base + addonTotal;
   const contractorOff = state.contractor?.discount_cents || 0;
   const discount = Math.min(subtotal, (state.promo ? state.promo.discount_cents : 0) + contractorOff);
-  const distanceFee = state.zone?.fee_cents || 0;
+  const distanceFee = state.distanceMode === "zones" ? (state.zone?.fee_cents || 0) : (state.distance?.fee_cents || 0);
   const taxable = Math.max(0, subtotal - discount) + distanceFee;
-  const tax = Math.round((taxable * (state.config.taxRateBps || 0)) / 10000);
+  const tax = state.contractor?.tax_exempt ? 0 : Math.round((taxable * (state.config.taxRateBps || 0)) / 10000);
   const total = taxable + tax;
   const deposit = t.deposit_cents > 0 ? t.deposit_cents : Math.round((total * (state.config.depositPercent || 25)) / 100);
   return { base, addonTotal, subtotal, discount, distanceFee, tax, total, deposit: Math.min(deposit, total) };
@@ -488,13 +539,16 @@ function computeQuote() {
 function renderSummary() {
   const q = computeQuote();
   const quote = needsQuote();
-  $("#review-heading").textContent = quote ? "Review & request quote" : "Review & pay";
+  $("#review-heading").textContent = quote ? (isContractor() ? "Review & send request" : "Review & request quote") : "Review & pay";
   $("#promo-wrap").hidden = quote;
   $("#pay-options").hidden = quote;
   $("#quote-note").hidden = !quote;
+  $("#quote-note").textContent = isContractor()
+    ? "Contractor requests are confirmed by our team. No payment is collected now — we'll confirm your contractor price and schedule, then send you a secure payment link."
+    : "This job is priced by our team based on the details you provided (weight, scope, distance or access). No payment is collected now — we'll call to confirm your price and schedule.";
   $("#stripe-note").hidden = quote;
   $("#card-consent").hidden = quote || (document.querySelector('input[name="pay"]:checked')?.value === "cash");
-  $("#submit-booking").textContent = quote ? "Request Quote" : "Book & Pay";
+  $("#submit-booking").textContent = quote ? (isContractor() ? "Send Request" : "Request Quote") : "Book & Pay";
 
   const choice = document.querySelector('input[name="pay"]:checked')?.value || "card_full";
   const dueNow = quote ? 0 : choice === "card_full" ? q.total : choice === "card_deposit" ? q.deposit : 0;
@@ -504,12 +558,21 @@ function renderSummary() {
     <div class="line"><span>${state.type.name}${isDurationType(state.type) ? ` (${state.days} days)` : ""}</span><span>${money(q.base)}</span></div>
     ${addons.map((a) => `<div class="line"><span>${a.name}</span><span>${money(a.price_cents)}</span></div>`).join("")}
     ${state.startDate ? `<div class="line"><span>Date</span><span>${state.startDate}</span></div>` : ""}
-    ${state.zone ? `<div class="line"><span>${state.zone.label}</span><span>${q.distanceFee ? money(q.distanceFee) : (state.zone.quote_only ? "—" : "Included")}</span></div>` : ""}
-    ${q.discount ? `<div class="line disc"><span>Discount ${state.promo.code}</span><span>−${money(q.discount)}</span></div>` : ""}
+    ${distanceLine(q)}
+    ${q.discount ? `<div class="line disc"><span>${state.promo ? `Discount ${state.promo.code}` : "Contractor pricing (estimate)"}</span><span>−${money(q.discount)}</span></div>` : ""}
     ${!quote && q.tax ? `<div class="line"><span>Subtotal</span><span>${money(q.total - q.tax)}</span></div>
     <div class="line"><span>Sales tax (${(state.config.taxRateBps / 100).toFixed(2)}%)</span><span>${money(q.tax)}</span></div>` : ""}
     <div class="line total"><span>${quote ? "Estimated total (before tax)" : "Total"}</span><span>${quote ? money(q.total - q.tax) + "+" : money(q.total)}</span></div>
     ${!quote ? `<div class="line"><span>Due now (${choice === "cash" ? "cash on approval" : choice === "card_deposit" ? "deposit" : "full"})</span><span>${money(dueNow)}</span></div>` : ""}`;
+}
+
+function distanceLine(q) {
+  if (state.distanceMode === "zones") {
+    return state.zone ? `<div class="line"><span>${state.zone.label}</span><span>${q.distanceFee ? money(q.distanceFee) : (state.zone.quote_only ? "—" : "Included")}</span></div>` : "";
+  }
+  if (state.distanceMode === "unverified" || !state.distance) return `<div class="line"><span>Delivery mileage</span><span>We'll confirm</span></div>`;
+  const d = state.distance;
+  return `<div class="line"><span>Mileage (${d.round_trip_miles} mi round trip)</span><span>${d.quote_only ? "—" : q.distanceFee ? money(q.distanceFee) : "Included"}</span></div>`;
 }
 
 async function applyPromo() {
@@ -543,7 +606,7 @@ async function submitBooking() {
       rental_days: state.days,
       start_date: state.startDate,
       time_window: state.timeWindow,
-      distance_zone: state.zone?.code || null,
+      distance_zone: state.distanceMode === "zones" ? (state.zone?.code || null) : null,
       addon_ids: state.selectedAddonIds,
       customer_name: $("#c-name").value.trim(),
       customer_email: $("#c-email").value.trim(),
@@ -560,7 +623,8 @@ async function submitBooking() {
       verify_token: state.verifyToken,
       verify_code: $("#verify-code").value.trim(),
       referral_source: $("#c-source").value || undefined,
-      contractor_number: state.contractor?.number || undefined,
+      is_contractor: isContractor() || undefined,
+      contractor_number: isContractor() ? ($("#c-contractor").value.trim() || state.contractor?.number || undefined) : undefined,
       photos: state.photos.map((p) => ({ path: p.path, kind: p.kind })),
     };
     const res = await api("create-booking", {
@@ -572,10 +636,10 @@ async function submitBooking() {
     } else if (res.mode === "cash") {
       window.location.href = `/book/confirm.html?ref=${res.reference}&cash=1`;
     } else if (res.mode === "quote") {
-      window.location.href = `/book/confirm.html?ref=${res.reference}&quote=1`;
+      window.location.href = `/book/confirm.html?ref=${res.reference}&quote=1${res.contractor ? "&contractor=1" : ""}`;
     }
   } catch (err) {
     alert(err.message);
-    btn.disabled = false; btn.textContent = quote ? "Request Quote" : "Book & Pay";
+    btn.disabled = false; btn.textContent = quote ? (isContractor() ? "Send Request" : "Request Quote") : "Book & Pay";
   }
 }

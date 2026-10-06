@@ -34,6 +34,19 @@ export default async (req: Request): Promise<Response> => {
         }
         await db.from("bookings").update({ overage_status: "paid" }).eq("id", bookingId);
       }
+      if (inv.metadata?.kind === "adjustment" && bookingId) {
+        // Added charges (admin-booking-charges / weight overage). Ledger once per invoice.
+        const { data: existing } = await db.from("payments").select("id").eq("booking_id", bookingId).eq("kind", "adjustment").eq("note", inv.id).maybeSingle();
+        if (!existing) {
+          const { data: bk } = await db.from("bookings").select("amount_paid_cents").eq("id", bookingId).maybeSingle();
+          const { error } = await db.from("payments").insert({ booking_id: bookingId, kind: "adjustment", method: "card", amount_cents: inv.amount_paid, status: "succeeded", note: inv.id, stripe_payment_intent_id: await invoicePaymentIntentId(inv) });
+          if (error) throw new Error(`Could not record adjustment payment: ${error.message}`);
+          await db.from("bookings").update({ amount_paid_cents: (bk?.amount_paid_cents ?? 0) + inv.amount_paid }).eq("id", bookingId);
+        }
+        const { data: rows } = await db.from("booking_charges").select("kind").eq("stripe_invoice_id", inv.id);
+        await db.from("booking_charges").update({ status: "paid" }).eq("stripe_invoice_id", inv.id).neq("status", "void");
+        if ((rows ?? []).some((r) => r.kind === "weight")) await db.from("bookings").update({ overage_status: "paid" }).eq("id", bookingId);
+      }
       if (inv.metadata?.kind === "balance" && bookingId) {
         // Deposit remainder or finalized quote (admin-collect-payment). Ledger once per invoice.
         const { data: existing } = await db.from("payments").select("id").eq("booking_id", bookingId).eq("kind", "balance").eq("note", inv.id).maybeSingle();
@@ -54,10 +67,10 @@ export default async (req: Request): Promise<Response> => {
     if (event.type === "invoice.payment_failed") {
       const inv = event.data.object as Stripe.Invoice;
       const bookingId = inv.metadata?.booking_id;
-      if ((inv.metadata?.kind === "overage" || inv.metadata?.kind === "balance") && bookingId) {
+      if (["overage", "balance", "adjustment"].includes(inv.metadata?.kind ?? "") && bookingId) {
         const { data: bk } = await db.from("bookings").select("flags").eq("id", bookingId).maybeSingle();
         const flags = new Set<string>(bk?.flags ?? []);
-        flags.add(`${inv.metadata.kind}_payment_failed`);
+        flags.add(`${inv.metadata?.kind}_payment_failed`);
         await db.from("bookings").update({ flags: [...flags] }).eq("id", bookingId);
       }
       return new Response("ok", { status: 200 });

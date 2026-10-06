@@ -6,7 +6,7 @@ const BUCKET = "booking-uploads";
 
 // GET /api/admin-bookings                -> filtered list
 //   ?status=&service=&from=&to=&q=&payment_status=&range_from=&range_to=
-// GET /api/admin-bookings?id=<uuid>      -> full detail + photos (signed) + payments
+// GET /api/admin-bookings?id=<uuid>      -> full detail + photos (signed) + payments + charges
 export default adminHandler("staff", async (req) => {
   const db = supabaseAdmin();
   const url = new URL(req.url);
@@ -15,7 +15,7 @@ export default adminHandler("staff", async (req) => {
   if (id) {
     const { data: booking } = await db
       .from("bookings")
-      .select("*, dumpster_types(name,service), inventory_units(label), promo_codes(code)")
+      .select("*, dumpster_types(name,service,category,extra_day_fee_cents,weight_limit_tons,overage_fee_cents,pricing_mode), inventory_units(label), promo_codes(code), contractors(contractor_number,company_name,tax_exempt,tax_exempt_cert)")
       .eq("id", id).maybeSingle();
     if (!booking) return notFound("Booking not found");
 
@@ -27,9 +27,12 @@ export default adminHandler("staff", async (req) => {
         return { ...p, url: data?.signedUrl ?? null };
       }),
     );
-    const { data: payments } = await db.from("payments").select("*").eq("booking_id", id).order("created_at");
+    const [{ data: payments }, { data: charges }] = await Promise.all([
+      db.from("payments").select("*").eq("booking_id", id).order("created_at"),
+      db.from("booking_charges").select("*").eq("booking_id", id).order("created_at"),
+    ]);
 
-    return json({ booking, photos: signed, payments: payments ?? [] });
+    return json({ booking, photos: signed, payments: payments ?? [], charges: charges ?? [] });
   }
 
   let q = db.from("bookings")

@@ -271,7 +271,7 @@
       </div>
       <div class="pricing-notes">
         <div class="pricing-note"><h4>What's included</h4><p>14-yard roll-off dumpster, delivery + pickup, rental time shown, up to <span data-live="std_tons">1.5</span> tons (<span data-live="std_lbs">3,000</span> lb) disposal, and standard placement within our 0&ndash;15 mile delivery zone.</p></div>
-        <div class="pricing-note"><h4>Common add-ons</h4><p>Extra day <span data-live="std_extra_day">$15</span> &middot; Extra week $90 &middot; Debris overage <span data-live="std_overage">$90</span>/ton (heavy materials excluded, see tab 4) &middot; 16&ndash;25 mi zone +<span data-live="zone2">$35</span> &middot; 26&ndash;35 mi zone +<span data-live="zone3">$65</span></p></div>
+        <div class="pricing-note"><h4>Common add-ons</h4><p>Extra day <span data-live="std_extra_day">$15</span> &middot; Extra week $90 &middot; Debris overage <span data-live="std_overage">$90</span>/ton (heavy materials excluded, see tab 4) &middot; Mileage past <span data-live="free_radius">15</span> miles from our Leander yard: <span data-live="per_mile">$1.85</span>/mile (round trip)</p></div>
       </div>
     </div>
 
@@ -300,8 +300,8 @@
         <div class="pricing-note"><h4>Heavy material exception</h4><p>Concrete, brick, dirt, rock, gravel, tile and shingles use weight-based Heavy Material pricing (tab 4) instead of the standard rental + overage rate.</p></div>
       </div>
       <div class="contractor-signup" id="contractor-signup">
-        <h4>Get your contractor number</h4>
-        <p>No account or password needed. Sign up, get your number right away, and we verify your business. Once approved, enter the number when you book online to get contractor pricing.</p>
+        <h4>Apply for a contractor account</h4>
+        <p>No account or password needed. Apply below and we verify your business. Once you're approved we email your contractor number. Use it (or the phone or email on your account) when you book or request a quote.</p>
         <form id="contractor-form" class="contractor-form">
           <div class="form-row">
             <div class="field"><label for="ct-company">Company name</label><input id="ct-company" required></div>
@@ -312,7 +312,8 @@
             <div class="field"><label for="ct-phone">Phone</label><input id="ct-phone" type="tel" required></div>
           </div>
           <div class="field"><label for="ct-info">License, EIN or website <span class="hint">(helps us approve you faster)</span></label><input id="ct-info"></div>
-          <button type="submit" class="btn btn-dark">Get my contractor number</button>
+          <label class="check-row"><input type="checkbox" id="ct-confirm" required> I'm a contractor or business (remodeler, roofer, builder, property manager, etc.)</label>
+          <button type="submit" class="btn btn-dark">Apply for a contractor account</button>
           <p class="contractor-msg" id="contractor-msg" role="status"></p>
         </form>
       </div>
@@ -550,9 +551,14 @@
               </select>
             </div>
             <div class="field">
-              <label for="zip">Project ZIP Code</label>
-              <input type="text" id="zip" name="zip" inputmode="numeric" pattern="[0-9]*">
+              <label for="address">Job Address</label>
+              <input type="text" id="address" name="address" autocomplete="street-address" placeholder="Street, city, ZIP">
             </div>
+          </div>
+          <label class="check-row"><input type="checkbox" id="q-contractor" name="is_contractor" value="yes"> I'm a contractor</label>
+          <div class="field" id="q-contractor-field" hidden>
+            <label for="q-contractor-number">Contractor number <span class="hint">(if you have one &mdash; otherwise we'll match you by phone or email, or start your application)</span></label>
+            <input type="text" id="q-contractor-number" name="contractor_number" placeholder="TXC-XXXXX" autocomplete="off">
           </div>
           <div class="field">
             <label for="heard-from">How did you hear about us?</label>
@@ -574,7 +580,7 @@
             <textarea id="details" name="details" placeholder="What are you clearing out? When do you need it?"></textarea>
           </div>
           <button type="submit" class="btn btn-primary btn-block">Request My Quote</button>
-          <p class="form-note">We typically respond within one business hour during operating hours.</p>
+          <p class="form-note">We typically respond within 48 hours.</p>
         </div>
 
         <div class="form-success" id="form-success">

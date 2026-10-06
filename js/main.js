@@ -57,7 +57,7 @@ function setLive(key, text) {
 // Admin Settings values (one shared fetch). Each consumer keeps its static fallback if this fails.
 const publicConfig = fetch('/api/public-config').then((r) => (r.ok ? r.json() : null)).catch(() => null);
 
-// Phone number and delivery zone fees from Back Office -> Settings.
+// Phone number and mileage pricing from Back Office -> Settings.
 (async () => {
   const cfg = await publicConfig;
   if (!cfg) return;
@@ -67,10 +67,11 @@ const publicConfig = fetch('/api/public-config').then((r) => (r.ok ? r.json() : 
     const tel = `tel:${digits.length === 10 ? '1' + digits : digits}`;
     document.querySelectorAll('[data-live-phone]').forEach((a) => { a.href = tel; });
   }
-  const fmt = (cents) => `$${Math.round(cents / 100)}`;
-  (cfg.distanceZones || []).forEach((z) => {
-    if (z && z.code && !z.quote_only && z.fee_cents != null) setLive(z.code, fmt(z.fee_cents));
-  });
+  const dp = cfg.distancePricing;
+  if (dp) {
+    setLive('free_radius', String(dp.free_radius_miles));
+    setLive('per_mile', `$${(dp.per_mile_cents / 100).toFixed(2)}`);
+  }
 })();
 
 // Live contractor pricing: same fallback-overwrite pattern as above, sourced
@@ -209,6 +210,10 @@ if (form) {
   let uploading = 0;
   let sbClient = null;
   const MAX_PHOTOS = 6, MAX_BYTES = 10 * 1024 * 1024;
+  const contractorBox = document.getElementById('q-contractor');
+  if (contractorBox) contractorBox.addEventListener('change', () => {
+    document.getElementById('q-contractor-field').hidden = !contractorBox.checked;
+  });
 
   async function client() {
     if (sbClient) return sbClient;
@@ -360,7 +365,7 @@ if (form) {
   }).join('') || '<tr><td colspan="3">No additional fees.</td></tr>';
 })();
 
-// Contractor signup: gets a contractor number immediately; pricing turns on after admin approval.
+// Contractor application: goes to the admin queue; the number is emailed after approval.
 (() => {
   const form = document.getElementById('contractor-form');
   if (!form) return;
@@ -382,9 +387,15 @@ if (form) {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Something went wrong');
       msg.className = 'contractor-msg ok';
-      const pending = data.status !== 'approved';
-      msg.innerHTML = `Your contractor number: <strong>${data.contractor_number}</strong><br>` +
-        (pending ? 'We are verifying your business. We will email you when contractor pricing is active.' : 'You are approved. Use this number when you book online.');
+      if (data.status === 'approved' && data.contractor_number) {
+        msg.innerHTML = `You're already approved. Your contractor number is <strong>${data.contractor_number}</strong>. Use it when you book online.`;
+      } else if (data.status === 'rejected' || data.status === 'suspended') {
+        msg.textContent = 'We already have an application with these details. Please call us about your contractor account.';
+      } else {
+        msg.textContent = data.existing
+          ? "We already have your application and are verifying it. We'll email your contractor number once you're approved."
+          : "Application received. We'll verify your business and email your contractor number once you're approved.";
+      }
       form.reset();
     } catch (err) {
       msg.className = 'contractor-msg err'; msg.textContent = err.message;

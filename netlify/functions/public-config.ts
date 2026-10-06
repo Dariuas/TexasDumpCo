@@ -1,6 +1,8 @@
 import { withErrors, json } from "./_shared/response";
 import { optionalEnv } from "./_shared/env";
 import { loadSettings, bool, str } from "./_shared/settings";
+import { distancePricing } from "./_shared/distance";
+import { mapsConfigured } from "./_shared/maps";
 
 const FEE_LABELS: Record<string, string> = {
   dry_run_or_inaccessible_cents: "Dry run / blocked access",
@@ -40,6 +42,8 @@ export default withErrors(async () => {
     taxRateBps: (settings["tax_rate_bps"] as number) ?? 0,
     depositPercent: (settings["deposit_percent"] as number) ?? 25,
     distanceZones: settings["distance_zones"] ?? [],
+    distancePricing: distancePricing(settings),
+    distanceMeasured: mapsConfigured(),
     emailVerification: !!optionalEnv("RESEND_API_KEY"),
     feeSchedule: feeSchedule(settings),
     referralSources: (settings["referral_sources"] as string[]) ?? [],

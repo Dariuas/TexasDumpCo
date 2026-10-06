@@ -65,7 +65,11 @@
         <select id="time-window"></select>
       </label>
     </div>
-    <div class="field">
+    <label class="field">Delivery / service address
+      <input id="c-address" autocomplete="street-address" placeholder="Street, city, ZIP">
+    </label>
+    <p class="avail" id="distance-msg" role="status"></p>
+    <div class="field" id="zone-wrap" hidden>
       <span class="field-label">How far is the job from us?</span>
       <div class="type-list" id="zone-list"></div>
     </div>
@@ -83,7 +87,6 @@
       <label class="field">Phone<input id="c-phone" autocomplete="tel" inputmode="tel"></label>
     </div>
     <label class="field">Email<input id="c-email" type="email" autocomplete="email"></label>
-    <label class="field">Delivery / service address<input id="c-address" autocomplete="street-address"></label>
     <label class="field">Placement notes (gate code, where to drop, etc.)<textarea id="c-delnotes" rows="2"></textarea></label>
     <label class="field">Tell us about the job (what you're getting rid of)<textarea id="c-notes" rows="3"></textarea></label>
 
@@ -92,10 +95,13 @@
         <select id="c-source"><option value="">Select one</option></select>
       </label>
       <div class="field">
-        <label for="c-contractor">Contractor number <span class="hint">(optional)</span></label>
-        <div class="inline-row"><input id="c-contractor" placeholder="TXC-XXXXX" autocomplete="off"><button type="button" class="btn btn-ghost" id="apply-contractor">Apply</button></div>
-        <p class="promo-msg" id="contractor-msg"></p>
-        <p class="hint"><a href="/#pricing" target="_blank" rel="noopener">Need one? Sign up as a contractor</a> &mdash; approved contractors get contractor pricing.</p>
+        <label class="check-row"><input type="checkbox" id="c-is-contractor"> I'm a contractor</label>
+        <div id="contractor-fields" hidden>
+          <label for="c-contractor">Contractor number <span class="hint">(optional &mdash; we can also match the phone or email above)</span></label>
+          <div class="inline-row"><input id="c-contractor" placeholder="TXC-XXXXX" autocomplete="off"><button type="button" class="btn btn-ghost" id="apply-contractor">Check</button></div>
+          <p class="promo-msg" id="contractor-msg"></p>
+          <p class="hint">Contractor requests go to our team to confirm pricing &mdash; no payment is taken online. New contractors are verified first.</p>
+        </div>
       </div>
     </div>
 
@@ -177,10 +183,7 @@
       <label class="pay-opt" id="cash-opt" hidden><input type="radio" name="pay" value="cash"> Pay cash (needs our approval)</label>
     </fieldset>
 
-    <div class="panel muted" id="quote-note" hidden>
-      This service is priced by our team based on the details you provided (weight, scope, or access).
-      No payment is collected now — we'll call to confirm your price and schedule.
-    </div>
+    <div class="panel muted" id="quote-note" hidden></div>
 
     <div class="nav-row">
       <button class="btn btn-ghost" data-back>Back</button>

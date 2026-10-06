@@ -25,6 +25,7 @@ export async function processPaidCheckout(session: Stripe.Checkout.Session): Pro
   const db = supabaseAdmin();
   // Only a completed card payment confirms a booking.
   if (session.payment_status !== "paid") return;
+  if (session.metadata?.kind === "charges") return processChargesCheckout(session);
   const bookingId = session.metadata?.booking_id;
   const chargeKind = session.metadata?.charge_kind === "deposit" ? "deposit" : "full";
   if (!bookingId) return;
@@ -129,4 +130,57 @@ export async function processPaidCheckout(session: Stripe.Checkout.Session): Pro
     flags.add("confirm_email_sent");
   }
   await db.from("bookings").update({ flags: [...flags] }).eq("id", booking.id);
+}
+
+// A paid pay link for itemized charges (invoice builder). The booking was already
+// confirmed by staff; mark its lines paid, ledger the payment once, keep the saved
+// card for later adjustments and email a receipt. Idempotent like the above.
+async function processChargesCheckout(session: Stripe.Checkout.Session): Promise<void> {
+  const db = supabaseAdmin();
+  const bookingId = session.metadata?.booking_id;
+  if (!bookingId) return;
+  const { data: booking } = await db.from("bookings").select("*").eq("id", bookingId).maybeSingle();
+  if (!booking) return;
+  const paid = session.amount_total ?? 0;
+  const pi = typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id ?? null;
+  let paymentMethodId: string | null = null;
+  if (pi) {
+    const intent = await stripe().paymentIntents.retrieve(pi);
+    paymentMethodId = typeof intent.payment_method === "string" ? intent.payment_method : intent.payment_method?.id ?? null;
+  }
+
+  const { data: lines } = await db.from("booking_charges").select("*").eq("stripe_invoice_id", session.id);
+  await db.from("booking_charges").update({ status: "paid" }).eq("stripe_invoice_id", session.id).neq("status", "void");
+
+  // Ledger + paid total once per payment intent.
+  let seen = false;
+  if (pi) {
+    const { data: existing } = await db.from("payments").select("id").eq("booking_id", bookingId).eq("stripe_payment_intent_id", pi).neq("kind", "refund").maybeSingle();
+    seen = !!existing;
+  }
+  if (!seen) {
+    await recordPayment(db, bookingId, "full", paid, pi);
+    const { error } = await db.from("bookings").update({
+      payment_status: "paid",
+      amount_paid_cents: (booking.amount_paid_cents ?? 0) + paid,
+      stripe_payment_intent_id: booking.stripe_payment_intent_id ?? pi,
+      stripe_customer_id: typeof session.customer === "string" ? session.customer : booking.stripe_customer_id,
+      stripe_payment_method_id: paymentMethodId ?? booking.stripe_payment_method_id,
+    }).eq("id", bookingId);
+    if (error) throw new Error(`Could not mark charges paid: ${error.message}`);
+    const rows = (lines ?? []).filter((l) => l.status !== "void");
+    const dollars = (c: number) => `$${(c / 100).toFixed(2)}`;
+    await sendEmail(booking.customer_email, `Payment received — ${booking.reference}`,
+      `<div style="font-family:Arial,sans-serif;max-width:560px;margin:auto">
+         <div style="background:#0b0b0c;color:#ffc61a;padding:18px 24px;font-weight:bold;font-size:20px">Texas Dumpster Co</div>
+         <div style="padding:24px;color:#111">
+           <h2>Thank you — payment received</h2>
+           <p>Hi ${esc(booking.customer_name)}, we received ${dollars(paid)} for booking ${esc(booking.reference)} (${esc(booking.start_date)} to ${esc(booking.end_date)}).</p>
+           <ul>${rows.map((r) => `<li>${esc(r.description)}: ${dollars(r.amount_cents)}</li>`).join("")}</ul>
+           <p>Your card is saved securely with Stripe for any charges described in your rental agreement (for example a weight overage). We always email the amount first.</p>
+         </div></div>`);
+    const alertTo = await adminAlertTo();
+    if (alertTo) await sendEmail(alertTo, `Paid: ${booking.reference} (${dollars(paid)})`,
+      `<p>${esc(booking.customer_name)} paid ${dollars(paid)} for booking ${esc(booking.reference)}.</p>`);
+  }
 }

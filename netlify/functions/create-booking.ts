@@ -6,12 +6,14 @@ import { stripe } from "./_shared/stripe";
 import { productIdForType, productIdForAddon, ensureFixedProduct, ensureTaxRate } from "./_shared/stripe-catalog";
 import { siteUrl } from "./_shared/env";
 import { loadSettings, bool, num } from "./_shared/settings";
-import { buildQuote, contractorDiscountCents, likeLiteral, DumpsterType, PromoRow, DurationTier, AddonSelection, DistanceZone } from "./_shared/pricing";
+import { buildQuote, contractorDiscountCents, likeLiteral, DumpsterType, PromoRow, DurationTier, AddonSelection, DistanceZone, DistanceResult } from "./_shared/pricing";
+import { mapsConfigured, measureFromYard, AddressNotFound } from "./_shared/maps";
 import { checkChallenge, agreementHash } from "./_shared/agreement-verify";
 import { typeAvailability } from "./_shared/availability";
 import { syncBookingEvent } from "./_shared/booking-calendar";
 import { sendEmail, adminAlertHtml, adminAlertTo } from "./_shared/email";
 import { optionalEnv } from "./_shared/env";
+import { findContractor, ensureApplication, matchesContact } from "./_shared/contractors";
 
 const HOLD_MINUTES = 30;
 const esc = (s: string) => s.replace(/[&<>"]/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[m]!));
@@ -36,6 +38,7 @@ interface Body {
   distance_zone?: string;
   referral_source?: string;
   contractor_number?: string;
+  is_contractor?: boolean;
   agreement_lang?: "en" | "es";
   agreement_signature?: string;   // drawn signature, PNG data URL
   agreement_ack?: string[];       // ids of acknowledgements the customer ticked
@@ -135,10 +138,21 @@ export default withErrors(async (req: Request) => {
     addons = (data ?? []).map((a) => ({ id: a.id, name: a.name, price_cents: a.price_cents, qty: 1 }));
   }
 
-  // ---- distance zone ----
+  // ---- distance: driving miles from the yard, measured here (never trusted from the
+  // page). If the address can't be routed, the booking becomes a request so staff
+  // confirm the mileage. Without a Maps key, fall back to the customer-picked zone. ----
   let distanceZone: DistanceZone | null = null;
-  const zones = (settings["distance_zones"] as DistanceZone[]) ?? [];
-  if (body.distance_zone) {
+  let distance: DistanceResult | null = null;
+  let distanceUnverified = false;
+  if (mapsConfigured()) {
+    try {
+      distance = await measureFromYard(body.delivery_address!.trim().slice(0, 300), settings);
+    } catch (err) {
+      if (!(err instanceof AddressNotFound)) console.error("[create-booking] distance lookup failed:", (err as Error).message);
+      distanceUnverified = true;
+    }
+  } else if (body.distance_zone) {
+    const zones = (settings["distance_zones"] as DistanceZone[]) ?? [];
     distanceZone = zones.find((z) => z.code === body.distance_zone) ?? null;
     if (!distanceZone) return badRequest("Unknown delivery distance zone");
   }
@@ -150,25 +164,34 @@ export default withErrors(async (req: Request) => {
     promo = (data as PromoRow) ?? null;
   }
 
-  // ---- approved contractor (number + matching email, status approved) ----
+  // ---- contractor: every contractor booking is a request the admin prices and
+  // confirms from the Contractor queue (never charged online). Matched by number,
+  // email or phone; a number only counts with the email or phone on its account.
+  // No account yet = an application is started for verification. ----
   let contractorId: string | null = null;
   let contractorDiscount = 0;
-  if (body.contractor_number?.trim()) {
-    const { data: c } = await db.from("contractors").select("id,email,status")
-      .eq("contractor_number", body.contractor_number.trim().toUpperCase()).maybeSingle();
-    if (!c || c.status !== "approved" || c.email.toLowerCase() !== body.customer_email!.trim().toLowerCase()) {
-      return badRequest("Contractor number not recognized or not approved yet for this email");
+  let taxExempt = false;
+  const contractorRequest = !!body.is_contractor || !!body.contractor_number?.trim();
+  if (contractorRequest) {
+    let c = await findContractor({ number: body.contractor_number, email: body.customer_email, phone: body.customer_phone });
+    if (c && !matchesContact(c, body.customer_email, body.customer_phone)) {
+      c = await findContractor({ email: body.customer_email, phone: body.customer_phone });
     }
+    if (!c) c = await ensureApplication({ contact_name: body.customer_name!, email: body.customer_email!, phone: body.customer_phone! });
     contractorId = c.id;
-    contractorDiscount = contractorDiscountCents((t as any).category, rentalDays, tiers, settings);
+    if (c.status === "approved") {
+      contractorDiscount = contractorDiscountCents((t as any).category, rentalDays, tiers, settings);
+      taxExempt = !!c.tax_exempt;
+    }
   }
 
   // ---- authoritative quote ----
-  const quote = buildQuote(t, { rentalDays, promo, tiers, addons, distanceZone, extraDiscountCents: contractorDiscount }, settings);
+  const quote = buildQuote(t, { rentalDays, promo, tiers, addons, distanceZone, distance, extraDiscountCents: contractorDiscount, taxExempt }, settings);
+  const isRequest = quote.needs_quote || contractorRequest || distanceUnverified;
 
   // ---- payment choice ----
-  const choice = quote.needs_quote ? null : body.payment_choice;
-  if (!quote.needs_quote && !choice) return badRequest("payment_choice is required");
+  const choice = isRequest ? null : body.payment_choice;
+  if (!isRequest && !choice) return badRequest("payment_choice is required");
   if (choice === "cash" && !bool(settings, "cash_accepted", false)) {
     return badRequest("Cash payment is not currently available");
   }
@@ -192,11 +215,12 @@ export default withErrors(async (req: Request) => {
     end_date: endDate,
     time_window: body.time_window ?? null,
     status: "pending",
-    payment_method: quote.needs_quote ? "card" : method,
-    payment_status: quote.needs_quote ? "unpaid" : (choice === "cash" ? "cash_pending" : "unpaid"),
+    payment_method: isRequest ? "card" : method,
+    payment_status: isRequest ? "unpaid" : (choice === "cash" ? "cash_pending" : "unpaid"),
     subtotal_cents: quote.subtotal_cents,
     addon_cents: quote.addon_cents,
     distance_zone: distanceZone?.code ?? null,
+    distance_miles: distance?.round_trip_miles ?? null,
     distance_fee_cents: quote.distance_fee_cents,
     discount_cents: quote.discount_cents,
     tax_cents: quote.tax_cents,
@@ -209,16 +233,17 @@ export default withErrors(async (req: Request) => {
     agreement_signed_at: new Date().toISOString(),
     referral_source: body.referral_source?.slice(0, 80) ?? null,
     contractor_id: contractorId,
+    tax_exempt: taxExempt,
     agreement_lang: lang,
     agreement_signature: sig,
     agreement_ack: acks,
     agreement_user_agent: req.headers.get("user-agent")?.slice(0, 300) ?? null,
     agreement_verified_at: optionalEnv("RESEND_API_KEY") ? new Date().toISOString() : null,
     agreement_signed_ip: req.headers.get("x-nf-client-connection-ip") ?? req.headers.get("x-forwarded-for"),
-    flags: quote.needs_quote ? ["quote_requested"] : [],
+    flags: [...(isRequest ? ["quote_requested"] : []), ...(contractorRequest ? ["contractor_request"] : []), ...(distanceUnverified ? ["distance_unverified"] : [])],
     // Only card checkouts hold inventory for HOLD_MINUTES; cash waits for staff approval
     // and must not be auto-canceled by expire-holds before anyone looks at it.
-    hold_expires_at: quote.needs_quote || choice === "cash" ? null : new Date(Date.now() + HOLD_MINUTES * 60_000).toISOString(),
+    hold_expires_at: isRequest || choice === "cash" ? null : new Date(Date.now() + HOLD_MINUTES * 60_000).toISOString(),
   }).select().single();
   if (bErr) throw new Error(bErr.message);
 
@@ -269,17 +294,17 @@ export default withErrors(async (req: Request) => {
 
   // ---- quote-request path: cleanouts, heavy material, contractor-style jobs,
   // or any 35+ mile delivery. Never charged automatically. ----
-  if (quote.needs_quote) {
+  if (isRequest) {
     await syncBookingEvent(booking.id); // on the calendar as PENDING until staff set the price
     if (alertTo) {
-      await sendEmail(alertTo, `Quote requested — ${booking.reference}`,
+      await sendEmail(alertTo, `${contractorRequest ? "Contractor request" : "Quote requested"} — ${booking.reference}`,
         adminAlertHtml({
           reference: booking.reference, customer_name: booking.customer_name,
           customer_phone: booking.customer_phone, typeName: t.name,
           start_date: startDate, payment_method: "card", payment_status: "quote_requested",
         }));
     }
-    return json({ mode: "quote", reference: booking.reference, booking_id: booking.id });
+    return json({ mode: "quote", contractor: contractorRequest, reference: booking.reference, booking_id: booking.id });
   }
 
   // ---- cash path: no charge, await approval ----
@@ -319,7 +344,7 @@ export default withErrors(async (req: Request) => {
     const mainNet = Math.max(0, quote.subtotal_cents - separateTotal - quote.discount_cents);
     lines.push(exclusive(await productIdForType(t.id), mainNet));
     for (const a of separateAddons) lines.push(exclusive(await productIdForAddon(a.id!), a.price_cents * a.qty));
-    if (quote.distance_fee_cents) lines.push(exclusive(await ensureFixedProduct("distance_fee", "Distance fee"), quote.distance_fee_cents));
+    if (quote.distance_fee_cents) lines.push(exclusive(await ensureFixedProduct("distance_fee", "Delivery mileage"), quote.distance_fee_cents));
   }
 
   // If Stripe rejects the session, release the hold now instead of blocking the dates for 30 minutes.

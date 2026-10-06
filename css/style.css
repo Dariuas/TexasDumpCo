@@ -894,6 +894,8 @@ table.price-table{ width:100%; border-collapse:collapse; }
 .contractor-signup h4{ font-family: var(--tag); text-transform:uppercase; letter-spacing:.04em; font-size:1.05rem; }
 .contractor-signup > p{ margin:8px 0 16px; color: var(--steel); font-size:.95rem; max-width:62ch; }
 .contractor-msg{ margin-top:12px; font-weight:600; }
+.check-row{ display:flex; gap:10px; align-items:flex-start; margin:4px 0 14px; font-size:.95rem; cursor:pointer; }
+.check-row input{ margin-top:4px; width:auto; flex:none; }
 .contractor-msg.ok{ color:#1d6b2f; } .contractor-msg.err{ color:#a3271c; }
 .contractor-msg strong{ font-size:1.3rem; letter-spacing:.06em; }
 

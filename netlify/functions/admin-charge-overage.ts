@@ -3,6 +3,7 @@ import { json, badRequest, notFound, readJson } from "./_shared/response";
 import { supabaseAdmin } from "./_shared/supabase";
 import { stripe } from "./_shared/stripe";
 import { audit } from "./_shared/audit";
+import { syncTotals } from "./_shared/charges";
 
 export default adminHandler("staff", async (req, user) => {
   if (req.method !== "POST") return badRequest("POST required");
@@ -19,6 +20,10 @@ export default adminHandler("staff", async (req, user) => {
   if (action === "waive") {
     if (inv.status === "open") await s.invoices.voidInvoice(inv.id);
     await db.from("bookings").update({ overage_status: "waived" }).eq("id", b.id);
+    // Charge lines on that invoice: the weight line is waived, anything else goes back to draft.
+    await db.from("booking_charges").update({ status: "waived" }).eq("stripe_invoice_id", inv.id).eq("kind", "weight");
+    await db.from("booking_charges").update({ status: "draft", stripe_invoice_id: null }).eq("stripe_invoice_id", inv.id).neq("kind", "weight").neq("status", "paid");
+    await syncTotals(b.id);
     await audit({ actor: user.email!, action: "overage.waive", entity: "bookings", entityId: b.id });
     return json({ ok: true, status: "waived" });
   }

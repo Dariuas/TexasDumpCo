@@ -7,7 +7,8 @@
     "dev": "netlify dev",
     "db:reset": "supabase db reset",
     "db:push": "supabase db push",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node --test netlify/functions/_shared/*.test.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",

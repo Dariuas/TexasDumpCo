@@ -1,21 +1,22 @@
 import { adminHandler } from "./_shared/admin";
 import { json, badRequest, notFound, readJson } from "./_shared/response";
 import { supabaseAdmin } from "./_shared/supabase";
-import { stripe } from "./_shared/stripe";
 import { computeOverageCents } from "./_shared/overage";
-import { ensureFixedProduct, ensureTaxRate } from "./_shared/stripe-catalog";
-import { loadSettings, num } from "./_shared/settings";
 import { sendEmail } from "./_shared/email";
 import { overageNoticeHtml } from "./_shared/overage-email";
 import { audit } from "./_shared/audit";
+import { priceLines, taxBpsFor, ensureBaseline, syncTotals, listCharges, createAdjustmentInvoice } from "./_shared/charges";
 
+// Record the scale weight. Any overage becomes a "weight" charge line on the booking
+// and is billed on its own invoice (emailed pay link); staff can then charge the
+// saved card or waive it from the booking's Charges section.
 export default adminHandler("staff", async (req, user) => {
   if (req.method !== "POST") return badRequest("POST required");
   const body = await readJson<{ booking_id?: string; weight_tons?: number; confirm?: boolean }>(req);
   const weight = Number(body.weight_tons);
   if (!body.booking_id || !Number.isFinite(weight) || weight < 0) return badRequest("booking_id and weight_tons required");
   const db = supabaseAdmin();
-  const { data: b } = await db.from("bookings").select("*").eq("id", body.booking_id).maybeSingle();
+  const { data: b } = await db.from("bookings").select("*, dumpster_types(name)").eq("id", body.booking_id).maybeSingle();
   if (!b) return notFound("Booking not found");
   if (b.overage_status === "paid") return badRequest("Overage already paid");
   const { data: t } = await db.from("dumpster_types").select("weight_limit_tons,overage_fee_cents").eq("id", b.type_id).maybeSingle();
@@ -29,30 +30,22 @@ export default adminHandler("staff", async (req, user) => {
     await audit({ actor: user.email!, action: "overage.none", entity: "bookings", entityId: b.id, detail: { weight } });
     return json({ overage_cents: 0, invoice_url: null });
   }
-  if (!b.stripe_customer_id) return badRequest("No Stripe customer on this booking (cash or quote). Collect the overage manually.");
-  if (b.overage_invoice_id) return badRequest("An overage invoice already exists. Waive it first to re-bill.");
+  const open = (await listCharges(b.id)).find((r) => r.kind === "weight" && ["draft", "invoiced"].includes(r.status));
+  if (open) return badRequest("An overage charge already exists. Remove it in Charges first to re-bill.");
+  if (!b.customer_email) return badRequest("No customer email on this booking. Add the overage in Charges and collect it manually.");
 
-  const s = stripe();
-  // Same separate "Sales Tax" line as checkout (settings.tax_rate_bps).
-  const taxRateId = await ensureTaxRate(num(await loadSettings(), "tax_rate_bps", 0));
-  const taxRates = taxRateId ? [taxRateId] : [];
-  const invoice = await s.invoices.create({
-    customer: b.stripe_customer_id, collection_method: "send_invoice", days_until_due: 7,
-    auto_advance: false,
-    description: `Weight overage — booking ${b.reference}`,
-    metadata: { booking_id: b.id, kind: "overage" },
-  });
-  await s.invoiceItems.create({
-    customer: b.stripe_customer_id, invoice: invoice.id, currency: "usd", quantity: 1,
-    description: `Overage: ${weight} tons (limit ${limit}) — ${b.reference}`,
-    price_data: { currency: "usd", unit_amount: overage, tax_behavior: "exclusive", product: await ensureFixedProduct("overage", "Weight overage") },
-    tax_rates: taxRates,
-  });
-  const final = await s.invoices.finalizeInvoice(invoice.id);
-  await db.from("bookings").update({ overage_invoice_id: final.id, overage_invoice_url: final.hosted_invoice_url }).eq("id", b.id);
+  const typeName = (b as any).dumpster_types?.name ?? "Booking";
+  const [line] = priceLines([{ kind: "weight", description: `Weight overage: ${weight} tons (limit ${limit} tons)`, quantity: 1, unit_cents: overage }], await taxBpsFor(b));
+  await ensureBaseline(b, typeName, user.email!);
+  const { data: row, error } = await db.from("booking_charges").insert({ ...line, booking_id: b.id, stage: "adjustment", status: "draft", created_by: user.email }).select().single();
+  if (error) throw new Error(error.message);
+  await syncTotals(b.id);
+
+  const invoice = await createAdjustmentInvoice(b, [row as any]);
+  await db.from("bookings").update({ overage_invoice_id: invoice.id, overage_invoice_url: invoice.hosted_invoice_url }).eq("id", b.id);
   // Stripe does not email invoices in test mode, so we send our own notice with the hosted pay link.
   await sendEmail(b.customer_email, `Weight overage — ${b.reference}`,
-    overageNoticeHtml({ reference: b.reference, customer_name: b.customer_name, weight_tons: weight, limit_tons: limit ?? 0, amount_cents: overage, pay_url: final.hosted_invoice_url!, has_card: !!b.stripe_payment_method_id }));
-  await audit({ actor: user.email!, action: "overage.invoice", entity: "bookings", entityId: b.id, detail: { weight, overage, invoice: final.id } });
-  return json({ overage_cents: overage, invoice_url: final.hosted_invoice_url });
+    overageNoticeHtml({ reference: b.reference, customer_name: b.customer_name, weight_tons: weight, limit_tons: limit ?? 0, amount_cents: overage, pay_url: invoice.hosted_invoice_url!, has_card: !!b.stripe_payment_method_id }));
+  await audit({ actor: user.email!, action: "overage.invoice", entity: "bookings", entityId: b.id, detail: { weight, overage, invoice: invoice.id } });
+  return json({ overage_cents: overage, invoice_url: invoice.hosted_invoice_url });
 });

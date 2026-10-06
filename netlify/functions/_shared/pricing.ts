@@ -1,4 +1,6 @@
 import { Settings, num } from "./settings";
+import type { DistanceResult } from "./distance";
+export * from "./distance";
 
 export type PricingMode = "flat" | "duration_tiers" | "quote_only";
 
@@ -138,7 +140,9 @@ export function buildQuote(
     tiers?: DurationTier[];
     addons?: AddonSelection[];
     distanceZone?: DistanceZone | null;
+    distance?: DistanceResult | null; // measured from the yard; wins over distanceZone
     extraDiscountCents?: number; // e.g. approved-contractor rate
+    taxExempt?: boolean;         // tax-exempt contractor: no sales tax
   },
   settings: Settings,
 ): Quote {
@@ -155,9 +159,9 @@ export function buildQuote(
   }
   discount = Math.min(subtotal, discount + Math.max(0, opts.extraDiscountCents ?? 0));
 
-  const distanceFee = opts.distanceZone?.fee_cents ?? 0;
+  const distanceFee = opts.distance ? opts.distance.fee_cents : opts.distanceZone?.fee_cents ?? 0;
   const taxable = Math.max(0, subtotal - discount) + distanceFee;
-  const taxBps = num(settings, "tax_rate_bps", 0);
+  const taxBps = opts.taxExempt ? 0 : num(settings, "tax_rate_bps", 0);
   const tax = Math.round((taxable * taxBps) / 10000);
   const total = taxable + tax;
 
@@ -165,7 +169,8 @@ export function buildQuote(
   const deposit =
     type.deposit_cents > 0 ? type.deposit_cents : Math.round((total * depositPct) / 100);
 
-  const needsQuote = type.pricing_mode === "quote_only" || !!opts.distanceZone?.quote_only;
+  const needsQuote = type.pricing_mode === "quote_only" ||
+    (opts.distance ? opts.distance.quote_only : !!opts.distanceZone?.quote_only);
 
   return {
     subtotal_cents: subtotal,

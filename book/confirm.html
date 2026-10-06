@@ -42,6 +42,14 @@
     document.getElementById("sub").textContent = "Thanks! Your request is in.";
     document.getElementById("quote-note").hidden = false;
   }
+  if (params.get("paid")) {
+    document.getElementById("headline").textContent = "Payment received";
+    document.getElementById("sub").textContent = "Thank you! A receipt is on its way to your email.";
+  }
+  if (params.get("contractor")) {
+    document.getElementById("headline").textContent = "Contractor request received";
+    document.getElementById("quote-note").innerHTML = "Our team will <strong>confirm your contractor price and schedule</strong>, then email you a secure payment link. No charge was made.";
+  }
 </script>
 </body>
 </html>

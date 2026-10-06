@@ -1,21 +1,13 @@
 import type { Config } from "@netlify/functions";
 import { withErrors, json, badRequest, readJson } from "./_shared/response";
-import { supabaseAdmin } from "./_shared/supabase";
 import { sendEmail, adminAlertTo } from "./_shared/email";
-import { optionalEnv } from "./_shared/env";
+import { findContractor, ensureApplication, phoneDigits } from "./_shared/contractors";
 
 const esc = (s: string) => s.replace(/[&<>"]/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[m]!));
-// No 0/O/1/I so a number read over the phone is unambiguous.
-const ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-function makeNumber(): string {
-  let s = "";
-  for (let i = 0; i < 5; i++) s += ALPHABET[Math.floor(Math.random() * ALPHABET.length)];
-  return `TXC-${s}`;
-}
 
-// Public: a contractor requests an account. No login is created. They get a
-// contractor number immediately, but it carries no contractor pricing until an
-// admin verifies the business and approves it.
+// Public: a contractor applies for an account. No login is created and no number
+// is issued yet: the application waits in the admin Contractor queue, and the
+// contractor number is assigned (and emailed) when an admin verifies and approves it.
 export default withErrors(async (req: Request) => {
   if (req.method !== "POST") return badRequest("POST required");
   const b = await readJson<Record<string, string>>(req);
@@ -23,42 +15,32 @@ export default withErrors(async (req: Request) => {
     if (!b[f]?.trim()) return badRequest(`${f} is required`);
   }
   if (!/^\S+@\S+\.\S+$/.test(b.email)) return badRequest("Valid email required");
-  const db = supabaseAdmin();
+  if (phoneDigits(b.phone).length < 10) return badRequest("Valid phone number required");
   const email = b.email.trim().toLowerCase();
 
-  const { data: existing } = await db.from("contractors").select("contractor_number,status").ilike("email", email).maybeSingle();
+  const existing = await findContractor({ email, phone: b.phone });
   if (existing) {
-    return json({ contractor_number: existing.contractor_number, status: existing.status, existing: true });
+    // Only an approved account reveals its number; anything else just reports status.
+    return json({
+      status: existing.status, existing: true,
+      contractor_number: existing.status === "approved" ? existing.contractor_number : null,
+    });
   }
 
-  let row: { contractor_number: string } | null = null;
-  for (let attempt = 0; attempt < 5 && !row; attempt++) {
-    const { data, error } = await db.from("contractors").insert({
-      contractor_number: makeNumber(),
-      company_name: b.company_name.trim(),
-      contact_name: b.contact_name.trim(),
-      email,
-      phone: b.phone.trim(),
-      license_info: b.license_info?.trim() || null,
-    }).select("contractor_number").single();
-    if (!error) row = data;
-    else if (!/duplicate|unique/i.test(error.message)) throw new Error(error.message);
-  }
-  if (!row) throw new Error("Could not generate a contractor number, please try again");
+  await ensureApplication({ company_name: b.company_name, contact_name: b.contact_name, email, phone: b.phone, license_info: b.license_info });
 
-  await sendEmail(email, `Your Texas Dumpster Co contractor number ${row.contractor_number}`,
+  await sendEmail(email, "We received your Texas Dumpster Co contractor application",
     `<div style="font-family:Arial,sans-serif;max-width:520px;margin:auto">
-       <p>Hi ${esc(b.contact_name)}, thanks for signing up ${esc(b.company_name)}.</p>
-       <p>Your contractor number is <strong style="font-size:20px">${row.contractor_number}</strong>.</p>
-       <p>We verify every new contractor before contractor pricing turns on. We will email you when you are approved.</p>
+       <p>Hi ${esc(b.contact_name)}, thanks for applying for a contractor account for ${esc(b.company_name)}.</p>
+       <p>We verify every contractor before contractor pricing turns on. Once you're approved we'll email your contractor number.</p>
      </div>`);
   const alertTo = await adminAlertTo();
   if (alertTo) {
-    await sendEmail(alertTo, `Contractor to approve — ${b.company_name}`,
-      `<p><strong>${esc(b.company_name)}</strong> (${esc(b.contact_name)}, ${esc(b.phone)}, ${esc(email)}) requested contractor number ${row.contractor_number}.</p>
-       <p>License / info: ${esc(b.license_info || "none given")}</p><p>Review in the admin under Contractors.</p>`);
+    await sendEmail(alertTo, `Contractor to verify — ${b.company_name}`,
+      `<p><strong>${esc(b.company_name)}</strong> (${esc(b.contact_name)}, ${esc(b.phone)}, ${esc(email)}) applied for a contractor account.</p>
+       <p>License / info: ${esc(b.license_info || "none given")}</p><p>Review it in the admin under Contractors → Queue.</p>`);
   }
-  return json({ contractor_number: row.contractor_number, status: "pending" });
+  return json({ status: "pending" });
 });
 
 // Abuse guard: per-IP limit, enforced by Netlify before the function runs.

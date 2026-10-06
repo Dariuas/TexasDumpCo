@@ -61,6 +61,7 @@ async function onSignedIn() {
   document.querySelectorAll("[data-admin]").forEach((a) => { if (me.role !== "admin") a.style.display = "none"; });
   setupNav();
   render("dashboard");
+  refreshQueueBadge();
 }
 
 function authHeaders(extra = {}) {
@@ -203,26 +204,29 @@ function wireRows(main) {
 }
 
 // ---------- manual "phone quote" booking entry (contractor / heavy material / cleanouts) ----------
-async function openNewBookingForm(serviceFilter, onDone) {
-  const [{ types }, cfg] = await Promise.all([authFetch("admin-inventory"), fetch("/api/public-config").then((r) => r.json())]);
+async function openNewBookingForm(serviceFilter, onDone, prefill = {}) {
+  const [{ types }, cfg] = await Promise.all([authFetch("admin-inventory"), publicCfg()]);
+  const q = prefill.quote || null;
+  const contractor = prefill.contractor || null;
   const referralSources = cfg.referralSources || [];
   const list = (serviceFilter ? types.filter((t) => t.service === serviceFilter) : types).filter((t) => t.active);
   const drawer = $("#drawer"), backdrop = $("#drawer-backdrop");
   drawer.innerHTML = `
     <button class="close" id="nb-close">×</button>
-    <h2>New Booking — Phone Quote</h2>
-    <p class="hint">For contractor accounts, heavy material, cleanouts, or any job priced by phone. Confirms immediately.</p>
+    <h2>${q ? "Create Booking from Quote Request" : "New Booking — Phone Quote"}</h2>
+    <p class="hint">For quote requests, contractor accounts, heavy material, cleanouts, or any job priced by phone.</p>
     <label>Service type<select id="nb-type">${list.map((t) => `<option value="${t.id}">${esc(t.name)}</option>`).join("")}</select></label>
     <div class="row two" style="display:grid;gap:10px;grid-template-columns:1fr 1fr;margin-top:8px">
-      <label>Customer name<input id="nb-name"></label>
-      <label>Phone<input id="nb-phone"></label>
+      <label>Customer name<input id="nb-name" value="${esc(q?.name || "")}"></label>
+      <label>Phone<input id="nb-phone" value="${esc(q?.phone || "")}"></label>
     </div>
-    <label>Email (optional)<input id="nb-email" type="email"></label>
-    <label>Address<input id="nb-address"></label>
-    <label>Notes<textarea id="nb-notes" rows="2"></textarea></label>
+    <label>Email ${q ? "" : "(optional)"}<input id="nb-email" type="email" value="${esc(q?.email || "")}"></label>
+    <label>Address<input id="nb-address" value="${esc(q?.delivery_address || "")}"></label>
+    <div class="actions"><button class="btn btn-ghost btn-sm" id="nb-distance" type="button">Calculate distance from the yard</button><span class="hint" id="nb-distance-msg"></span></div>
+    <label>Notes<textarea id="nb-notes" rows="2">${esc(q ? [q.service, q.details].filter(Boolean).join(" — ") : "")}</textarea></label>
     <div class="row two" style="display:grid;gap:10px;grid-template-columns:1fr 1fr;margin-top:8px">
-      <label>How did they hear about us?<select id="nb-source"><option value="">—</option>${referralSources.map((x) => `<option>${esc(x)}</option>`).join("")}</select></label>
-      <label>Contractor # (optional)<input id="nb-contractor" placeholder="TXC-XXXXX"></label>
+      <label>How did they hear about us?<select id="nb-source"><option value="">—</option>${referralSources.map((x) => `<option ${q?.referral_source === x ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></label>
+      <label>Contractor # / phone / email (optional)<input id="nb-contractor" placeholder="TXC-XXXXX" value="${esc(contractor?.contractor_number || (q?.is_contractor ? q.phone : "") || "")}"></label>
     </div>
     <label>Booking length (days)<input id="nb-days" type="number" min="1" value="1" style="max-width:100px"></label>
     <span class="field-label" style="display:block;margin-top:8px">Pick a start date <span class="hint">(availability for the selected type)</span></span>
@@ -231,18 +235,38 @@ async function openNewBookingForm(serviceFilter, onDone) {
       <label>Start date<input id="nb-start" type="date"></label>
       <label>End date<input id="nb-end" type="date"></label>
     </div>
-    <label>Agreed price ($)<input id="nb-amount" type="number" step="0.01"></label>
-    <div class="row two" style="display:grid;gap:10px;grid-template-columns:1fr 1fr;margin-top:8px">
-      <label>Payment method<select id="nb-method"><option value="cash">Cash</option><option value="card">Card</option></select></label>
-      <label>Payment status<select id="nb-status"><option value="unpaid">Unpaid (invoice later)</option><option value="paid">Paid in full</option><option value="deposit_paid">Deposit paid</option></select></label>
+    <label>Pricing<select id="nb-mode">
+      <option value="itemize" ${q ? "selected" : ""}>Build an itemized invoice next (rental, mileage, fees) and send a pay link</option>
+      <option value="agreed" ${q ? "" : "selected"}>Enter one agreed price now and confirm</option>
+    </select></label>
+    <div id="nb-agreed">
+      <label>Agreed price ($)<input id="nb-amount" type="number" step="0.01"></label>
+      <div class="row two" style="display:grid;gap:10px;grid-template-columns:1fr 1fr;margin-top:8px">
+        <label>Payment method<select id="nb-method"><option value="cash">Cash</option><option value="card">Card</option></select></label>
+        <label>Payment status<select id="nb-status"><option value="unpaid">Unpaid (invoice later)</option><option value="paid">Paid in full</option><option value="deposit_paid">Deposit paid</option></select></label>
+      </div>
+      <label id="nb-paid-wrap" hidden>Amount paid now ($)<input id="nb-paid" type="number" step="0.01"></label>
     </div>
-    <label id="nb-paid-wrap" hidden>Amount paid now ($)<input id="nb-paid" type="number" step="0.01"></label>
     <div class="actions" style="margin-top:12px"><button class="btn btn-primary btn-sm" id="nb-submit">Create Booking</button></div>`;
   drawer.hidden = false; backdrop.hidden = false;
   const close = () => { if (cal) cal.destroy(); drawer.hidden = true; backdrop.hidden = true; };
   $("#nb-close").addEventListener("click", close);
   backdrop.addEventListener("click", close, { once: true });
   $("#nb-status").addEventListener("change", () => { $("#nb-paid-wrap").hidden = $("#nb-status").value !== "deposit_paid"; });
+  const syncMode = () => { $("#nb-agreed").hidden = $("#nb-mode").value !== "agreed"; };
+  $("#nb-mode").addEventListener("change", syncMode); syncMode();
+
+  let distance = null;
+  guarded($("#nb-distance"), async () => {
+    const m = $("#nb-distance-msg");
+    try {
+      const r = await fetch("/api/distance-quote", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ address: $("#nb-address").value }) })
+        .then(async (x) => { const d = await x.json(); if (!x.ok) throw new Error(d.error || "Failed"); return d; });
+      if (r.configured === false) { m.textContent = "Google Maps is not set up yet."; return; }
+      distance = r;
+      m.textContent = `${r.oneway_miles} mi one way · ${r.round_trip_miles} mi round trip · mileage ${money(r.fee_cents)}${r.quote_only ? " · past the online limit" : ""}`;
+    } catch (e) { m.textContent = e.message; }
+  });
 
   // Staff can plan further out than the customer-facing lead time; no lead-time floor.
   const calMin = todayStr(), calMax = addDays(todayStr(), 180);
@@ -261,11 +285,13 @@ async function openNewBookingForm(serviceFilter, onDone) {
   });
 
   guarded($("#nb-submit"), async () => {
-    if (!$("#nb-name").value.trim() || !$("#nb-phone").value.trim() || !$("#nb-address").value.trim() || !$("#nb-start").value || !$("#nb-amount").value) {
-      return alert("Name, phone, address, start date and price are required.");
+    const itemize = $("#nb-mode").value === "itemize";
+    if (!$("#nb-name").value.trim() || !$("#nb-phone").value.trim() || !$("#nb-address").value.trim() || !$("#nb-start").value || (!itemize && !$("#nb-amount").value)) {
+      return alert(itemize ? "Name, phone, address and start date are required." : "Name, phone, address, start date and price are required.");
     }
+    if (itemize && !$("#nb-email").value.trim()) return alert("An email is needed to send the invoice and pay link.");
     try {
-      await post("admin-create-booking", {
+      const r = await post("admin-create-booking", {
         type_id: $("#nb-type").value,
         customer_name: $("#nb-name").value.trim(),
         customer_email: $("#nb-email").value.trim() || undefined,
@@ -276,19 +302,36 @@ async function openNewBookingForm(serviceFilter, onDone) {
         contractor_number: $("#nb-contractor").value.trim() || undefined,
         start_date: $("#nb-start").value,
         end_date: $("#nb-end").value || undefined,
-        amount_total_cents: cents($("#nb-amount").value),
-        payment_method: $("#nb-method").value,
-        payment_status: $("#nb-status").value,
+        as_request: itemize,
+        quote_request_id: q?.id,
+        distance_miles: distance?.round_trip_miles,
+        distance_fee_cents: distance && !distance.quote_only ? distance.fee_cents : undefined,
+        amount_total_cents: itemize ? 0 : cents($("#nb-amount").value),
+        payment_method: itemize ? "card" : $("#nb-method").value,
+        payment_status: itemize ? "unpaid" : $("#nb-status").value,
         amount_paid_cents: cents($("#nb-paid")?.value || "0"),
       });
-      toast("Booking created"); close(); onDone();
+      toast(itemize ? "Booking created — build the invoice" : "Booking created");
+      close(); onDone();
+      if (itemize) {
+        const { booking, charges } = await authFetch(`admin-bookings?id=${r.booking_id}`);
+        drawer.hidden = false; backdrop.hidden = false;
+        backdrop.addEventListener("click", () => { drawer.hidden = true; backdrop.hidden = true; }, { once: true });
+        openInvoiceBuilder(booking, charges, () => openBooking(r.booking_id));
+      }
     } catch (e) { alert(e.message); }
   });
 }
 
 // ---------- booking drawer ----------
 async function openBooking(id) {
-  const { booking: b, photos, payments } = await authFetch(`admin-bookings?id=${id}`);
+  const { booking: b, photos, payments, charges } = await authFetch(`admin-bookings?id=${id}`);
+  const liveCharges = charges.filter((c) => c.status !== "void" && c.status !== "waived");
+  const initialRows = liveCharges.filter((c) => c.stage === "initial");
+  const hasInvoice = initialRows.length > 0;
+  const initialLocked = initialRows.some((c) => ["invoiced", "paid", "external"].includes(c.status) && !(c.status === "invoiced" && (c.stripe_invoice_id || "").startsWith("cs_")));
+  const initialOpen = initialRows.filter((c) => c.status === "draft" || (c.status === "invoiced" && (c.stripe_invoice_id || "").startsWith("cs_")));
+  const draftAdjust = liveCharges.filter((c) => c.stage === "adjustment" && c.status === "draft");
   const drawer = $("#drawer"), backdrop = $("#drawer-backdrop");
   const typeName = b.dumpster_types?.name || "";
   // Every card payment (checkout, balance, overage) minus refunds; older bookings fall back to amount_paid.
@@ -313,7 +356,9 @@ async function openBooking(id) {
       ${b.promo_codes ? `<dt>Promo</dt><dd>${esc(b.promo_codes.code)} (−${money(b.discount_cents)})</dd>` : ""}
       ${b.notes ? `<dt>Job notes</dt><dd>${esc(b.notes)}</dd>` : ""}
       ${b.referral_source ? `<dt>Heard about us</dt><dd>${esc(b.referral_source)}</dd>` : ""}
-      ${b.contractor_id ? `<dt>Contractor</dt><dd>Approved contractor job</dd>` : ""}
+      ${b.contractor_id ? `<dt>Contractor</dt><dd>${esc(b.contractors?.company_name || "Contractor")}${b.contractors?.contractor_number ? ` · ${esc(b.contractors.contractor_number)}` : " · not approved yet"}</dd>` : ""}
+      ${b.tax_exempt ? `<dt>Sales tax</dt><dd><span class="badge b-confirmed">tax exempt</span>${b.contractors?.tax_exempt_cert ? ` cert ${esc(b.contractors.tax_exempt_cert)}` : ""}</dd>` : ""}
+      ${b.distance_miles != null ? `<dt>Distance</dt><dd>${b.distance_miles} mi round trip from the yard${b.distance_fee_cents ? ` · mileage ${money(b.distance_fee_cents)}` : ""}</dd>` : ""}
       ${b.agreement_signed_name ? `<dt>Agreement</dt><dd>Signed by ${esc(b.agreement_signed_name)} (v${b.agreement_version || "?"}, ${b.agreement_lang === "es" ? "Spanish" : "English"})<br>
         <span class="muted">${b.agreement_signed_at ? new Date(b.agreement_signed_at).toLocaleString() : ""} · IP ${esc(b.agreement_signed_ip || "?")}</span><br>
         ${b.agreement_verified_at ? `<span class="badge b-paid">email verified ${new Date(b.agreement_verified_at).toLocaleString()}</span>` : `<span class="badge b-unpaid">email not verified</span>`}
@@ -324,8 +369,12 @@ async function openBooking(id) {
 
     <div class="drawer-actions">
       ${(b.flags || []).includes("quote_requested") && b.status === "pending" ? `
-        <button class="btn btn-primary btn-sm" data-act="set-price">Set Final Price &amp; Confirm</button>` : ""}
-      ${b.payment_method === "card" && b.status !== "canceled" && ["unpaid", "deposit_paid"].includes(b.payment_status)
+        <button class="btn btn-primary btn-sm" data-act="build-invoice">Build invoice &amp; confirm</button>` : ""}
+      ${hasInvoice && !initialLocked && b.status !== "canceled" && !(b.flags || []).includes("quote_requested") ? `
+        <button class="btn btn-ghost btn-sm" data-act="build-invoice">Edit invoice</button>` : ""}
+      ${initialOpen.length && b.status !== "canceled" ? `
+        <button class="btn btn-primary btn-sm" data-act="pay-link">${initialOpen.some((c) => c.status === "invoiced") ? "Resend pay link" : "Email pay link"}</button>` : ""}
+      ${b.payment_method === "card" && b.status !== "canceled" && ["unpaid", "deposit_paid"].includes(b.payment_status) && !hasInvoice
           && !(b.flags || []).includes("quote_requested") && b.amount_total_cents > b.amount_paid_cents ? `
         <button class="btn btn-primary btn-sm" data-act="balance-link">Email pay link for balance</button>
         ${b.stripe_payment_method_id ? '<button class="btn btn-ghost btn-sm" data-act="balance-charge">Charge saved card for balance</button>' : ""}` : ""}
@@ -335,7 +384,7 @@ async function openBooking(id) {
         <button class="btn btn-primary btn-sm" data-act="cash-approve">Approve cash</button>
         <button class="btn btn-ghost btn-sm" data-act="cash-approve-collected">Approve + collected</button>
         <button class="btn btn-ghost btn-sm" data-act="cash-reject">Reject</button>` : ""}
-      ${b.service === "dumpster" && b.payment_method === "card" && b.overage_status !== "paid" ? `<button class="btn btn-ghost btn-sm" data-act="record-weight">Record weight</button>` : ""}
+      ${b.service === "dumpster" && b.status !== "canceled" && b.overage_status !== "paid" ? `<button class="btn btn-ghost btn-sm" data-act="record-weight">Record weight</button>` : ""}
       ${b.overage_status === "due" ? `<button class="btn btn-primary btn-sm" data-act="charge-overage" ${b.stripe_payment_method_id ? "" : 'disabled title="No saved card"'}>Charge saved card</button>
         <button class="btn btn-ghost btn-sm" data-act="waive-overage">Waive overage</button>` : ""}
       ${b.status !== "canceled" ? `<button class="btn btn-ghost btn-sm" data-act="reschedule">Reschedule</button>` : ""}
@@ -353,6 +402,40 @@ async function openBooking(id) {
     </div>
     <label>Admin notes<textarea id="d-notes" rows="2">${esc(b.admin_notes || "")}</textarea></label>
     <div class="actions" style="margin-top:8px"><button class="btn btn-primary btn-sm" data-act="save">Save changes</button></div>
+
+    <div class="section-line"></div>
+    <h3>Charges</h3>
+    ${liveCharges.length || charges.length ? `<div class="table-wrap"><table class="table charge-table"><thead><tr><th>Item</th><th>Type</th><th class="num">Amount</th><th class="num">Tax</th><th>Status</th><th></th></tr></thead><tbody>
+      ${charges.map((c) => `<tr data-charge="${c.id}" style="cursor:default${c.status === "void" || c.status === "waived" ? ";opacity:.5;text-decoration:line-through" : ""}">
+        <td>${esc(c.description)}${c.quantity != 1 ? ` <span class="muted">(${c.quantity} × ${money(c.unit_cents)})</span>` : ""}</td>
+        <td>${esc(c.kind.replace("_", " "))}${c.stage === "initial" ? "" : ' <span class="muted">added</span>'}</td>
+        <td class="num">${money(c.amount_cents)}</td><td class="num">${money(c.tax_cents)}</td>
+        <td>${badge(c.status === "external" ? "original" : c.status)}</td>
+        <td>${["draft", "invoiced"].includes(c.status) && !(c.stage === "initial" && c.status === "draft") ? '<button class="btn btn-ghost btn-sm" data-remove>Remove</button>' : ""}</td></tr>`).join("")}
+    </tbody></table></div>
+    <div class="totals">Total ${money(b.amount_total_cents)} · Paid ${money(b.amount_paid_cents)} · <strong>Owed ${money(Math.max(0, b.amount_total_cents - b.amount_paid_cents))}</strong></div>` : '<p class="muted">No itemized charges yet.</p>'}
+    ${b.status !== "canceled" ? `<details class="add-charge"${draftAdjust.length ? " open" : ""}><summary class="btn btn-ghost btn-sm">+ Add charge (overage, mileage, extra days, fee)</summary>
+      <div class="form" style="margin-top:10px">
+        <div class="row two" style="display:grid;gap:10px;grid-template-columns:1fr 1fr">
+          <label>Type<select id="ac-kind">
+            <option value="fee">Fee from fee schedule</option><option value="mileage">Extra mileage</option>
+            <option value="extra_days">Extra days</option><option value="weight">Weight overage</option><option value="custom">Other</option>
+          </select></label>
+          <label id="ac-fee-wrap">Fee<select id="ac-fee"></select></label>
+        </div>
+        <label>Description<input id="ac-desc"></label>
+        <div class="row three" style="display:grid;gap:10px;grid-template-columns:1fr 1fr 1fr">
+          <label><span id="ac-qty-label">Quantity</span><input id="ac-qty" type="number" step="0.01" min="0" value="1"></label>
+          <label>Each ($)<input id="ac-unit" type="number" step="0.01" min="0"></label>
+          <label class="chk" style="align-self:end"><input type="checkbox" id="ac-taxable" ${b.tax_exempt ? "" : "checked"}> Taxable</label>
+        </div>
+        <div class="actions"><button class="btn btn-primary btn-sm" data-act="add-charge">Add charge</button></div>
+      </div></details>` : ""}
+    ${draftAdjust.length ? `<div class="drawer-actions">
+      <span class="hint">${draftAdjust.length} new charge(s) not billed yet:</span>
+      <button class="btn btn-primary btn-sm" data-act="bill-charge" ${b.stripe_payment_method_id ? "" : 'disabled title="No saved card on this booking"'}>Charge saved card</button>
+      <button class="btn btn-ghost btn-sm" data-act="bill-link">Email pay link</button>
+    </div>` : ""}
 
     <div class="section-line"></div>
     <h3>Photos</h3>
@@ -395,10 +478,28 @@ async function openBooking(id) {
         const amt = prompt(`Refund amount in dollars (max ${money(refundable)}):`, (refundable / 100).toFixed(2)); if (!amt) return;
         await post("admin-refund", { booking_id: id, amount_cents: cents(amt) });
         toast("Refunded"); refresh();
-      } else if (act === "set-price") {
-        const amt = prompt("Final agreed price in dollars, before tax:", (b.amount_total_cents / 100).toFixed(2)); if (!amt) return;
-        await post("admin-collect-payment", { booking_id: id, action: "finalize_quote", amount_cents: cents(amt) });
-        toast("Price set — booking confirmed, customer emailed. Use \"Email pay link\" to collect."); refresh();
+      } else if (act === "build-invoice") {
+        return openInvoiceBuilder(b, charges, refresh);
+      } else if (act === "pay-link") {
+        if (!confirm(`Email ${b.customer_email} a secure Stripe pay link for ${money(initialOpen.reduce((t, c) => t + c.amount_cents + c.tax_cents, 0))}? Their card is saved for later charges.`)) return;
+        const r = await post("admin-booking-charges", { booking_id: id, action: "pay_link" });
+        toast(r.emailed ? "Pay link emailed" : "Link created, but the email failed. Copy it from the next prompt.");
+        if (!r.emailed) prompt("Pay link (copy and text it to the customer):", r.url);
+        refresh();
+      } else if (act === "add-charge") {
+        const kind = $("#ac-kind").value, desc = $("#ac-desc").value.trim();
+        const qty = parseFloat($("#ac-qty").value), unit = cents($("#ac-unit").value);
+        if (!desc || !(qty > 0) || !(unit > 0)) return alert("Enter a description, quantity and amount.");
+        await post("admin-booking-charges", { booking_id: id, action: "add", lines: [{ kind, description: desc, quantity: qty, unit_cents: unit, taxable: $("#ac-taxable").checked }] });
+        toast("Charge added — bill it below"); refresh();
+      } else if (act === "bill-charge" || act === "bill-link") {
+        const total = draftAdjust.reduce((t, c) => t + c.amount_cents + c.tax_cents, 0);
+        const charge = act === "bill-charge";
+        if (!confirm(charge ? `Charge the saved card ${money(total)} now and email a receipt?` : `Email ${b.customer_email} a pay link for ${money(total)}?`)) return;
+        const r = await post("admin-booking-charges", { booking_id: id, action: "bill", method: charge ? "charge" : "link" });
+        toast(charge ? "Charged — receipt emailed" : r.emailed ? "Pay link emailed" : "Invoice created, but the email failed");
+        if (!charge && !r.emailed && r.url) prompt("Pay link (copy and send it to the customer):", r.url);
+        refresh();
       } else if (act === "sync-payment") {
         const r = await post("admin-sync-payment", { booking_id: id });
         toast(r.paid ? `Payment found — booking ${r.status}, ${String(r.payment_status).replace(/_/g, " ")}` : r.message);
@@ -437,6 +538,15 @@ async function openBooking(id) {
     } catch (e) { alert(e.message); }
   }));
 
+  drawer.querySelectorAll("[data-remove]").forEach((btn) => guarded(btn, async () => {
+    const tr = btn.closest("tr");
+    const c = charges.find((x) => x.id === tr.dataset.charge);
+    const msg = c.status === "invoiced" ? `Remove “${c.description}”? Its unpaid invoice / pay link is canceled; any other lines on it go back to “not billed”.` : `Remove “${c.description}”?`;
+    if (!confirm(msg)) return;
+    try { await post("admin-booking-charges", { booking_id: id, action: "remove", charge_id: c.id }); toast("Removed"); refresh(); } catch (e) { alert(e.message); }
+  }));
+  if ($("#ac-kind")) wireAddCharge(b);
+
   $("#staff-photo").addEventListener("change", async (e) => {
     const file = e.target.files[0]; if (!file) return;
     try {
@@ -448,6 +558,121 @@ async function openBooking(id) {
     } catch (err) { alert(err.message); }
   });
 }
+let publicCfgPromise = null;
+function publicCfg() {
+  publicCfgPromise ??= fetch("/api/public-config").then((r) => r.json()).catch(() => ({}));
+  return publicCfgPromise;
+}
+
+// "+ Add charge" presets: fee schedule items, per-mile, per-day and per-ton rates.
+async function wireAddCharge(b) {
+  const cfg = await publicCfg();
+  const t = b.dumpster_types || {};
+  const fees = cfg.feeSchedule || [];
+  $("#ac-fee").innerHTML = fees.map((f, i) => `<option value="${i}">${esc(f.label)} (${f.from ? "from " : ""}${money(f.amount_cents)}${f.unit ? " / " + esc(f.unit) : ""})</option>`).join("") || "<option value=''>No fees in the fee schedule</option>";
+  const set = (desc, qtyLabel, unitCents) => {
+    $("#ac-desc").value = desc; $("#ac-qty-label").textContent = qtyLabel;
+    $("#ac-qty").value = 1; $("#ac-unit").value = unitCents != null ? (unitCents / 100).toFixed(2) : "";
+  };
+  const apply = () => {
+    const kind = $("#ac-kind").value;
+    $("#ac-fee-wrap").hidden = kind !== "fee";
+    if (kind === "fee") { const f = fees[+$("#ac-fee").value]; set(f ? f.label : "", f?.unit ? `Quantity (${f.unit})` : "Quantity", f?.amount_cents); }
+    else if (kind === "mileage") set("Extra mileage", "Extra miles", cfg.distancePricing?.per_mile_cents ?? 185);
+    else if (kind === "extra_days") set("Extra rental days", "Days", t.extra_day_fee_cents ?? null);
+    else if (kind === "weight") set(`Weight overage${t.weight_limit_tons != null ? ` (limit ${t.weight_limit_tons} tons)` : ""}`, "Tons over the limit", t.overage_fee_cents ?? null);
+    else set("", "Quantity", null);
+  };
+  $("#ac-kind").addEventListener("change", apply);
+  $("#ac-fee").addEventListener("change", apply);
+  apply();
+}
+
+// Invoice builder: price a quote / contractor request line by line. Saving confirms a
+// pending request (reserves a container) and emails the itemized price; the pay link
+// is sent next.
+async function openInvoiceBuilder(b, charges, onDone) {
+  const cfg = await publicCfg();
+  const taxBps = b.tax_exempt ? 0 : (cfg.taxRateBps || 0);
+  const t = b.dumpster_types || {};
+  const typeName = t.name || "Booking";
+  const draft = charges.filter((c) => c.stage === "initial" && ["draft", "invoiced"].includes(c.status));
+  let lines = draft.length
+    ? draft.map((c) => ({ kind: c.kind, description: c.description, quantity: Number(c.quantity), unit_cents: Math.abs(c.unit_cents), taxable: c.taxable }))
+    : [
+        { kind: "rental", description: `${typeName} ${b.start_date} to ${b.end_date}`, quantity: 1, unit_cents: Math.max(0, (b.subtotal_cents || 0) - (b.addon_cents || 0)), taxable: true },
+        ...(b.addon_cents ? [{ kind: "custom", description: "Add-on items", quantity: 1, unit_cents: b.addon_cents, taxable: true }] : []),
+        ...(b.distance_fee_cents ? [{ kind: "mileage", description: `Delivery mileage${b.distance_miles != null ? ` (${b.distance_miles} mi round trip)` : ""}`, quantity: 1, unit_cents: b.distance_fee_cents, taxable: true }] : []),
+        ...(b.discount_cents ? [{ kind: "discount", description: b.contractor_id ? "Contractor pricing" : "Discount", quantity: 1, unit_cents: b.discount_cents, taxable: true }] : []),
+      ];
+  const fees = cfg.feeSchedule || [];
+  const KINDS = [["rental", "Rental / service"], ["mileage", "Mileage"], ["extra_days", "Extra days"], ["weight", "Weight"], ["fee", "Fee"], ["custom", "Other"], ["discount", "Discount"]];
+  const drawer = $("#drawer");
+  drawer.innerHTML = `
+    <button class="close" id="ib-close">×</button>
+    <h2>Invoice — ${esc(b.reference)}</h2>
+    <p class="hint">${esc(b.customer_name)} · ${esc(typeName)} · ${b.start_date} → ${b.end_date}${b.tax_exempt ? ' · <span class="badge b-confirmed">tax exempt</span>' : ""}${b.distance_miles != null ? ` · ${b.distance_miles} mi round trip` : ""}</p>
+    ${(b.flags || []).includes("quote_requested") ? '<p class="hint">Saving confirms this request (reserves a container for those dates) and emails the customer the itemized price.</p>' : ""}
+    <div id="ib-lines"></div>
+    <div class="actions">
+      <button class="btn btn-ghost btn-sm" id="ib-add" type="button">+ Line</button>
+      ${fees.length ? `<select id="ib-fee"><option value="">+ Fee from schedule…</option>${fees.map((f, i) => `<option value="${i}">${esc(f.label)} (${money(f.amount_cents)})</option>`).join("")}</select>` : ""}
+    </div>
+    <div class="totals" id="ib-totals"></div>
+    <div class="actions"><button class="btn btn-primary btn-sm" id="ib-save">${(b.flags || []).includes("quote_requested") ? "Save &amp; confirm booking" : "Save invoice"}</button>
+      <button class="btn btn-ghost btn-sm" id="ib-cancel" type="button">Cancel</button></div>`;
+  const read = () => {
+    lines = [...drawer.querySelectorAll(".charge-row")].map((r) => ({
+      kind: r.querySelector(".ib-kind").value, description: r.querySelector(".ib-desc").value.trim(),
+      quantity: parseFloat(r.querySelector(".ib-qty").value) || 0, unit_cents: cents(r.querySelector(".ib-unit").value),
+      taxable: r.querySelector(".ib-tax").checked,
+    }));
+  };
+  const totals = () => {
+    let sub = 0, tax = 0;
+    for (const l of lines) {
+      const amt = Math.round(l.quantity * (l.kind === "discount" ? -Math.abs(l.unit_cents) : Math.abs(l.unit_cents)));
+      sub += amt; tax += l.taxable ? Math.round((amt * taxBps) / 10000) : 0;
+    }
+    $("#ib-totals").innerHTML = `Subtotal ${money(sub)} · Tax ${money(tax)}${taxBps ? ` (${(taxBps / 100).toFixed(2)}%)` : ""} · <strong>Total ${money(sub + tax)}</strong>`;
+  };
+  const draw = () => {
+    $("#ib-lines").innerHTML = lines.map((l, i) => `
+      <div class="charge-row" data-i="${i}">
+        <select class="ib-kind">${KINDS.map(([k, label]) => `<option value="${k}" ${k === l.kind ? "selected" : ""}>${label}</option>`).join("")}</select>
+        <input class="ib-desc" value="${esc(l.description)}" placeholder="Description">
+        <input class="ib-qty" type="number" step="0.01" min="0" value="${l.quantity}" title="Quantity">
+        <input class="ib-unit" type="number" step="0.01" min="0" value="${(Math.abs(l.unit_cents) / 100).toFixed(2)}" title="Each ($)">
+        <label class="chk"><input type="checkbox" class="ib-tax" ${l.taxable ? "checked" : ""}> tax</label>
+        <button class="btn btn-ghost btn-sm ib-del" type="button">×</button>
+      </div>`).join("") || '<p class="muted">No lines.</p>';
+    $("#ib-lines").querySelectorAll(".ib-del").forEach((x) => x.addEventListener("click", () => { read(); lines.splice(+x.closest(".charge-row").dataset.i, 1); draw(); }));
+    totals();
+  };
+  $("#ib-lines").addEventListener("input", () => { read(); totals(); });
+  $("#ib-add").addEventListener("click", () => { read(); lines.push({ kind: "custom", description: "", quantity: 1, unit_cents: 0, taxable: !b.tax_exempt }); draw(); });
+  $("#ib-fee")?.addEventListener("change", (e) => {
+    const f = fees[+e.target.value]; if (!f) return;
+    read(); lines.push({ kind: "fee", description: f.label, quantity: 1, unit_cents: f.amount_cents, taxable: !b.tax_exempt }); e.target.value = ""; draw();
+  });
+  $("#ib-close").addEventListener("click", onDone);
+  $("#ib-cancel").addEventListener("click", onDone);
+  guarded($("#ib-save"), async () => {
+    read();
+    try {
+      const r = await post("admin-booking-charges", { booking_id: b.id, action: "save_initial", lines: lines.filter((l) => l.description || l.unit_cents) });
+      toast(r.confirmed ? "Booking confirmed — customer emailed the price" : "Invoice saved");
+      if (confirm("Email the customer the secure pay link now?")) {
+        const p = await post("admin-booking-charges", { booking_id: b.id, action: "pay_link" });
+        toast(p.emailed ? "Pay link emailed" : "Link created, but the email failed");
+        if (!p.emailed) prompt("Pay link (copy and send it to the customer):", p.url);
+      }
+      onDone(); render(currentView());
+    } catch (e) { alert(e.message); }
+  });
+  draw();
+}
+
 function currentView() { return $("#admin-nav a.active")?.dataset.view || "dashboard"; }
 
 // ==================================================================
@@ -1049,8 +1274,26 @@ views.settings = async (main) => {
       <div class="actions"><button class="btn btn-primary btn-sm" id="s-save">Save settings</button></div>
     </div>
 
-    <h3>Delivery distance zones</h3>
-    <p class="hint">Self-reported by the customer at booking, same question the phone guide asks: "where is the job?"</p>
+    <h3>Delivery distance (from the yard)</h3>
+    <p class="hint">Driving miles from the yard to the job address are measured with Google Maps at booking. Inside the free radius is included; past it, every mile is billed at the per-mile rate (round trip counts the miles out and back). Past the online limit, the customer is asked to call for a quote.</p>
+    <div class="form">
+      <label>Yard address<input id="dp-hub" value="${esc(dp().hub_address || "1725 County Road 269, Leander, TX 78641")}"></label>
+      <div class="row three">
+        <label>Free radius (miles, one way)<input id="dp-free" type="number" step="0.1" value="${esc(dp().free_radius_miles ?? 15)}"></label>
+        <label>Per mile ($)<input id="dp-rate" type="number" step="0.01" value="${esc(((dp().per_mile_cents ?? 185) / 100).toFixed(2))}"></label>
+        <label>Online limit (miles, one way)<input id="dp-max" type="number" step="0.1" value="${esc(dp().max_oneway_miles ?? 35)}"></label>
+      </div>
+      <label>Bill miles<select id="dp-rt"><option value="true" ${dp().round_trip !== false ? "selected" : ""}>Round trip (out and back)</option><option value="false" ${dp().round_trip === false ? "selected" : ""}>One way</option></select></label>
+      <div class="row two">
+        <label>Test an address<input id="dp-test-addr" placeholder="Job address"></label>
+        <div class="actions" style="align-self:end"><button class="btn btn-ghost btn-sm" id="dp-test" type="button">Calculate</button></div>
+      </div>
+      <p class="hint" id="dp-msg"></p>
+      <div class="actions"><button class="btn btn-primary btn-sm" id="dp-save">Save distance pricing</button></div>
+    </div>
+
+    <h3>Fallback distance zones</h3>
+    <p class="hint">Only used if Google Maps is not set up (no GOOGLE_MAPS_API_KEY): the customer then picks how far the job is.</p>
     <div class="form">
       <div class="row three">
         <label>0-15 miles<input value="Included" disabled></label>
@@ -1143,6 +1386,27 @@ views.settings = async (main) => {
   });
 
   function zones() { return v("distance_zones", []) || []; }
+  function dp() { return v("distance_pricing", {}) || {}; }
+
+  $("#dp-save").addEventListener("click", async () => {
+    const distance_pricing = {
+      hub_address: $("#dp-hub").value.trim(),
+      free_radius_miles: Number($("#dp-free").value), per_mile_cents: cents($("#dp-rate").value),
+      max_oneway_miles: Number($("#dp-max").value), round_trip: $("#dp-rt").value === "true",
+    };
+    if (!distance_pricing.hub_address) return alert("Enter the yard address.");
+    await post("admin-settings", { settings: { distance_pricing } });
+    toast("Distance pricing saved — live on the website");
+  });
+  guarded($("#dp-test"), async () => {
+    const m = $("#dp-msg");
+    try {
+      const r = await fetch("/api/distance-quote", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ address: $("#dp-test-addr").value }) })
+        .then(async (x) => { const d = await x.json(); if (!x.ok) throw new Error(d.error || "Failed"); return d; });
+      m.textContent = r.configured === false ? "Google Maps is not set up yet (add GOOGLE_MAPS_API_KEY in Netlify)."
+        : `${r.oneway_miles} mi one way · ${r.round_trip_miles} mi round trip · ${r.billable_miles} billable mi · mileage ${money(r.fee_cents)}${r.quote_only ? " · past the online limit (call for quote)" : ""}. Uses saved settings.`;
+    } catch (e) { m.textContent = e.message; }
+  });
 
   $("#s-save").addEventListener("click", async () => {
     await post("admin-settings", { settings: {
@@ -1215,29 +1479,191 @@ views.customers = async (main) => {
 //  CONTRACTORS (signups, approval, numbers)
 // ==================================================================
 views.contractors = async (main) => {
-  const { contractors } = await authFetch("admin-contractors");
+  const data = await authFetch("admin-contractors");
+  const { contractors, quotes, queue_bookings: queueBookings } = data;
   const pending = contractors.filter((c) => c.status === "pending");
-  const stBadge = (st) => `<span class="badge b-${st === "approved" ? "confirmed" : st === "pending" ? "pending" : "canceled"}">${esc(st)}</span>`;
+  const openQuotes = quotes.filter((q) => ["new", "contacted"].includes(q.status));
+  const queueCount = pending.length + queueBookings.length + openQuotes.length;
+  setQueueBadge(queueCount);
+  const byId = new Map(contractors.map((c) => [c.id, c]));
+  const who = (id) => { const c = byId.get(id); return c ? `${esc(c.company_name)}${c.contractor_number ? ` · ${esc(c.contractor_number)}` : ""} ${contractorBadge(c.status)}` : '<span class="muted">—</span>'; };
+  const tab = main.dataset.tab || "queue";
+
   main.innerHTML = `
     <h2>Contractors</h2>
-    <p class="hint">Contractors sign up on the website and get a number instantly. Contractor pricing only works after you approve them here. Verify license / EIN / website first.</p>
-    ${pending.length ? `<div class="notice">⚠ ${pending.length} waiting for approval</div>` : ""}
-    <div class="table-wrap"><table class="table"><thead><tr><th>Number</th><th>Company</th><th>Contact</th><th>Verification info</th><th>Status</th><th>Jobs</th><th>Spend</th><th></th></tr></thead><tbody>
-    ${contractors.map((c) => `<tr data-id="${c.id}" style="cursor:default">
-      <td><strong>${esc(c.contractor_number)}</strong></td><td>${esc(c.company_name)}</td>
-      <td>${esc(c.contact_name)}<br><span class="muted">${esc(c.phone)}<br>${esc(c.email)}</span></td>
-      <td>${esc(c.license_info || "—")}</td><td>${stBadge(c.status)}</td>
-      <td>${c.jobs}</td><td>${money(c.spend_cents)}</td>
-      <td class="nowrap">
-        ${c.status !== "approved" ? `<button class="btn btn-primary btn-sm" data-st="approved">Approve</button>` : `<button class="btn btn-ghost btn-sm" data-st="suspended">Suspend</button>`}
-        ${c.status === "pending" ? `<button class="btn btn-ghost btn-sm" data-st="rejected">Reject</button>` : ""}
-      </td></tr>`).join("") || '<tr><td colspan="8" class="muted">No contractors yet.</td></tr>'}
+    <div class="tabs" role="tablist">
+      <button class="tab ${tab === "queue" ? "active" : ""}" data-tab="queue">Queue${queueCount ? ` <span class="count">${queueCount}</span>` : ""}</button>
+      <button class="tab ${tab === "accounts" ? "active" : ""}" data-tab="accounts">Accounts (${contractors.length})</button>
+    </div>
+    <div id="ct-body"></div>`;
+  main.querySelectorAll(".tab").forEach((b) => b.addEventListener("click", () => { main.dataset.tab = b.dataset.tab; views.contractors(main); }));
+  const body = $("#ct-body");
+
+  if (tab === "queue") {
+    body.innerHTML = `
+      <p class="hint">Everything from contractors waiting on you: new applications to verify, booking requests to price and confirm, and quote requests.</p>
+      <h3>Applications to verify (${pending.length})</h3>
+      ${pending.length ? `<div class="table-wrap"><table class="table"><thead><tr><th>Company</th><th>Contact</th><th>Verification info</th><th>Applied</th><th></th></tr></thead><tbody>
+        ${pending.map((c) => `<tr data-cid="${c.id}">
+          <td><strong>${esc(c.company_name)}</strong></td>
+          <td>${esc(c.contact_name)}<br><span class="muted">${esc(c.phone)}<br>${esc(c.email)}</span></td>
+          <td>${esc(c.license_info || "—")}</td><td>${new Date(c.created_at).toLocaleDateString()}</td>
+          <td class="nowrap"><button class="btn btn-primary btn-sm" data-st="approved">Approve</button> <button class="btn btn-ghost btn-sm" data-st="rejected">Reject</button></td>
+        </tr>`).join("")}</tbody></table></div>` : '<div class="empty">No applications waiting.</div>'}
+      <h3>Booking requests to price &amp; confirm (${queueBookings.length})</h3>
+      <p class="hint">Open one and use “Build invoice &amp; confirm” to set the contractor price and send the pay link.</p>
+      ${queueBookings.length ? `<div class="table-wrap"><table class="table"><thead><tr><th>Ref</th><th>Contractor</th><th>Item</th><th>Dates</th><th>Estimate</th></tr></thead><tbody>
+        ${queueBookings.map((b) => `<tr data-id="${b.id}"><td><strong>${esc(b.reference)}</strong></td>
+          <td>${who(b.contractor_id)}<br><span class="muted">${esc(b.customer_name)} · ${esc(b.customer_phone)}</span></td>
+          <td>${esc(b.dumpster_types?.name || "")}</td><td>${b.start_date}${b.end_date !== b.start_date ? ` → ${b.end_date}` : ""}</td><td>${money(b.amount_total_cents)}</td></tr>`).join("")}
+        </tbody></table></div>` : '<div class="empty">No contractor booking requests.</div>'}
+      <h3>Quote requests (${openQuotes.length})</h3>
+      ${openQuotes.length ? `<div class="table-wrap"><table class="table"><thead><tr><th>Contact</th><th>Contractor</th><th>Service / address</th><th>Status</th><th></th></tr></thead><tbody>
+        ${openQuotes.map((q) => `<tr data-qid="${q.id}"><td>${esc(q.name)}<br><span class="muted">${esc(q.phone)} · ${esc(q.email)}</span></td>
+          <td>${who(q.contractor_id)}</td><td>${esc(q.service || "")}<br><span class="muted">${esc(q.delivery_address || "")}</span>${q.details ? `<br><span class="muted">${esc(q.details.slice(0, 140))}</span>` : ""}</td>
+          <td>${badge(q.status)}</td>
+          <td class="nowrap"><button class="btn btn-primary btn-sm" data-qact="book">Create booking</button> <button class="btn btn-ghost btn-sm" data-qact="contacted">Mark contacted</button> <button class="btn btn-ghost btn-sm" data-qact="closed">Close</button></td></tr>`).join("")}
+        </tbody></table></div>` : '<div class="empty">No open contractor quote requests.</div>'}`;
+    body.querySelectorAll("tr[data-id]").forEach((tr) => tr.addEventListener("click", () => openBooking(tr.dataset.id)));
+    body.querySelectorAll("tr[data-cid]").forEach((tr) => tr.addEventListener("click", (e) => { if (!e.target.closest("button")) openContractor(tr.dataset.cid, () => views.contractors(main)); }));
+    body.querySelectorAll("[data-st]").forEach((b) => guarded(b, async () => {
+      const id = b.closest("tr").dataset.cid;
+      if (b.dataset.st === "rejected" && !confirm("Reject this contractor application?")) return;
+      try {
+        const r = await post("admin-contractors", { id, status: b.dataset.st });
+        toast(b.dataset.st === "approved" ? `Approved — number ${r.contractor.contractor_number} emailed` : "Rejected");
+        views.contractors(main);
+      } catch (e) { alert(e.message); }
+    }));
+    body.querySelectorAll("[data-qact]").forEach((b) => guarded(b, async () => {
+      const q = quotes.find((x) => x.id === b.closest("tr").dataset.qid);
+      try {
+        if (b.dataset.qact === "book") return openNewBookingForm(null, () => views.contractors(main), { quote: q, contractor: byId.get(q.contractor_id) });
+        await post("admin-quotes", { id: q.id, status: b.dataset.qact });
+        toast("Updated"); views.contractors(main);
+      } catch (e) { alert(e.message); }
+    }));
+    return;
+  }
+
+  // ---- accounts ----
+  body.innerHTML = `
+    <div class="toolbar"><input class="grow" id="ct-search" placeholder="Search contractor number, phone, email or company"></div>
+    <div id="ct-list"></div>`;
+  const draw = () => {
+    const q = $("#ct-search").value.trim().toLowerCase();
+    const qDigits = q.replace(/\D/g, "");
+    const rows = contractors.filter((c) => !q
+      || (c.contractor_number || "").toLowerCase().includes(q)
+      || c.email.toLowerCase().includes(q)
+      || c.company_name.toLowerCase().includes(q) || c.contact_name.toLowerCase().includes(q)
+      || (qDigits.length >= 3 && (c.phone_digits || "").includes(qDigits)));
+    $("#ct-list").innerHTML = `<div class="table-wrap"><table class="table"><thead><tr><th>Number</th><th>Company</th><th>Contact</th><th>Status</th><th>Tax</th><th>Quotes</th><th>Jobs</th><th>Spend</th></tr></thead><tbody>
+      ${rows.map((c) => `<tr data-cid="${c.id}">
+        <td><strong>${esc(c.contractor_number || "—")}</strong></td><td>${esc(c.company_name)}</td>
+        <td>${esc(c.contact_name)}<br><span class="muted">${esc(c.phone)}<br>${esc(c.email)}</span></td>
+        <td>${contractorBadge(c.status)}</td><td>${c.tax_exempt ? '<span class="badge b-confirmed">exempt</span>' : '<span class="muted">taxed</span>'}</td>
+        <td>${c.quotes}</td><td>${c.jobs}</td><td>${money(c.spend_cents)}</td></tr>`).join("") || '<tr><td colspan="8" class="muted">No contractors match.</td></tr>'}
     </tbody></table></div>`;
-  main.querySelectorAll("[data-st]").forEach((b) => guarded(b, async () => {
-    const id = b.closest("tr").dataset.id;
-    try { await post("admin-contractors", { id, status: b.dataset.st }); toast("Updated"); render("contractors"); } catch (e) { alert(e.message); }
-  }));
+    $("#ct-list").querySelectorAll("tr[data-cid]").forEach((tr) => tr.addEventListener("click", () => openContractor(tr.dataset.cid, () => views.contractors(main))));
+  };
+  $("#ct-search").addEventListener("input", draw);
+  draw();
 };
+
+function contractorBadge(st) {
+  return `<span class="badge b-${st === "approved" ? "confirmed" : st === "pending" ? "pending" : "canceled"}">${esc(st)}</span>`;
+}
+function setQueueBadge(n) {
+  const a = document.querySelector('#admin-nav a[data-view="contractors"]');
+  if (a) a.innerHTML = `Contractors${n ? ` <span class="count">${n}</span>` : ""}`;
+}
+async function refreshQueueBadge() {
+  try {
+    const { contractors, quotes, queue_bookings } = await authFetch("admin-contractors");
+    setQueueBadge(contractors.filter((c) => c.status === "pending").length + queue_bookings.length
+      + quotes.filter((q) => ["new", "contacted"].includes(q.status)).length);
+  } catch { /* staff without access or offline: no badge */ }
+}
+
+// ---------- contractor drawer: details, status, tax exemption, linked work ----------
+async function openContractor(id, onChange) {
+  const data = await authFetch("admin-contractors");
+  const c = data.contractors.find((x) => x.id === id);
+  if (!c) return alert("Contractor not found");
+  const bookings = data.bookings.filter((b) => b.contractor_id === id);
+  const quotes = data.quotes.filter((q) => q.contractor_id === id);
+  const drawer = $("#drawer"), backdrop = $("#drawer-backdrop");
+  drawer.innerHTML = `
+    <button class="close" id="cd-close">×</button>
+    <h2>${esc(c.company_name)} ${contractorBadge(c.status)}</h2>
+    <p class="hint">Contractor number: <strong>${esc(c.contractor_number || "assigned when approved")}</strong>${c.verified_by ? ` · verified by ${esc(c.verified_by)}` : ""}${c.approved_at ? ` on ${new Date(c.approved_at).toLocaleDateString()}` : ""}</p>
+    <div class="drawer-actions">
+      ${c.status !== "approved" ? '<button class="btn btn-primary btn-sm" data-st="approved">Approve</button>' : '<button class="btn btn-ghost btn-sm" data-st="suspended">Suspend</button>'}
+      ${c.status === "pending" ? '<button class="btn btn-ghost btn-sm" data-st="rejected">Reject</button>' : ""}
+    </div>
+    <div class="section-line"></div>
+    <div class="row two" style="display:grid;gap:10px;grid-template-columns:1fr 1fr">
+      <label>Company<input id="cd-company" value="${esc(c.company_name)}"></label>
+      <label>Contact<input id="cd-contact" value="${esc(c.contact_name)}"></label>
+      <label>Phone<input id="cd-phone" value="${esc(c.phone)}"></label>
+      <label>Email<input id="cd-email" type="email" value="${esc(c.email)}"></label>
+    </div>
+    <label>License / EIN / website<input id="cd-license" value="${esc(c.license_info || "")}"></label>
+    <label>Admin notes<textarea id="cd-notes" rows="2">${esc(c.admin_notes || "")}</textarea></label>
+    <h3>Sales tax</h3>
+    <label class="chk"><input type="checkbox" id="cd-exempt" ${c.tax_exempt ? "checked" : ""}> Tax exempt — no sales tax on this contractor's bookings and invoices</label>
+    <label>Exemption certificate / permit number<input id="cd-cert" value="${esc(c.tax_exempt_cert || "")}" placeholder="e.g. Texas form 01-339 or sales tax permit #"></label>
+    <p class="hint">${c.tax_exempt_file ? '<button class="btn btn-ghost btn-sm" id="cd-cert-view" type="button">View certificate on file</button>' : "No certificate copy on file."}</p>
+    <label class="hint">Upload certificate (PDF or photo)<input type="file" id="cd-cert-file" accept="application/pdf,image/*"></label>
+    <div class="actions" style="margin-top:8px"><button class="btn btn-primary btn-sm" id="cd-save">Save changes</button></div>
+    <div class="section-line"></div>
+    <h3>Bookings (${bookings.length})</h3>
+    <div class="table-wrap"><table class="table"><tbody>
+      ${bookings.map((b) => `<tr data-id="${b.id}"><td><strong>${esc(b.reference)}</strong></td><td>${b.start_date}</td><td>${badge(b.status)}</td><td>${badge(b.payment_status)}</td><td>${money(b.amount_total_cents)}</td></tr>`).join("") || '<tr><td class="muted">No bookings yet.</td></tr>'}
+    </tbody></table></div>
+    <h3>Quote requests (${quotes.length})</h3>
+    <div class="table-wrap"><table class="table"><tbody>
+      ${quotes.map((q) => `<tr><td>${new Date(q.created_at).toLocaleDateString()}</td><td>${esc(q.service || "")}</td><td>${badge(q.status)}</td></tr>`).join("") || '<tr><td class="muted">No quote requests.</td></tr>'}
+    </tbody></table></div>`;
+  drawer.hidden = false; backdrop.hidden = false;
+  const close = () => { drawer.hidden = true; backdrop.hidden = true; };
+  $("#cd-close").addEventListener("click", close);
+  backdrop.addEventListener("click", close, { once: true });
+  const reopen = () => { onChange?.(); openContractor(id, onChange); };
+  drawer.querySelectorAll("tr[data-id]").forEach((tr) => tr.addEventListener("click", () => openBooking(tr.dataset.id)));
+  drawer.querySelectorAll("[data-st]").forEach((b) => guarded(b, async () => {
+    if (b.dataset.st !== "approved" && !confirm(`${b.dataset.st === "rejected" ? "Reject" : "Suspend"} this contractor?`)) return;
+    try {
+      const r = await post("admin-contractors", { id, status: b.dataset.st });
+      toast(b.dataset.st === "approved" ? `Approved — number ${r.contractor.contractor_number} emailed` : "Updated");
+      reopen();
+    } catch (e) { alert(e.message); }
+  }));
+  guarded($("#cd-save"), async () => {
+    try {
+      await post("admin-contractors", {
+        id, company_name: $("#cd-company").value, contact_name: $("#cd-contact").value,
+        phone: $("#cd-phone").value, email: $("#cd-email").value, license_info: $("#cd-license").value,
+        admin_notes: $("#cd-notes").value, tax_exempt: $("#cd-exempt").checked, tax_exempt_cert: $("#cd-cert").value,
+      });
+      toast("Saved"); reopen();
+    } catch (e) { alert(e.message); }
+  });
+  $("#cd-cert-view")?.addEventListener("click", async () => {
+    try { const { url } = await post("admin-contractors", { id, action: "cert_view" }); window.open(url, "_blank", "noopener"); } catch (e) { alert(e.message); }
+  });
+  $("#cd-cert-file").addEventListener("change", async (e) => {
+    const file = e.target.files[0]; if (!file) return;
+    try {
+      const { path, token } = await post("admin-contractors", { id, action: "cert_upload_url", filename: file.name, content_type: file.type });
+      const { error } = await sb.storage.from("booking-uploads").uploadToSignedUrl(path, token, file);
+      if (error) throw error;
+      await post("admin-contractors", { id, action: "cert_attach", path });
+      toast("Certificate uploaded"); reopen();
+    } catch (err) { alert(err.message || "Upload failed"); }
+  });
+}
 
 // ==================================================================
 //  REPORTS
@@ -1370,18 +1796,21 @@ views.quotes = async (main) => {
   const fresh = quotes.filter((q) => q.status === "new").length;
   main.innerHTML = `
     <h2>Quote Requests</h2>
-    <p class="hint">From the homepage quote form. Call or email the customer, then mark it contacted / booked. To turn one into a job use Bookings → + New Booking.</p>
+    <p class="hint">From the homepage quote form. Call or email the customer, then use <strong>Create booking</strong> to turn the request into a job and build its invoice. Contractor requests also show under Contractors → Queue.</p>
     ${fresh ? `<div class="notice">${fresh} new</div>` : ""}
     <div id="q-list"></div>`;
   $("#q-list").innerHTML = quotes.map((q) => `
     <details class="form quote-card" data-id="${q.id}" ${q.status === "new" ? "open" : ""}>
       <summary><strong>${esc(q.name)}</strong> <span class="muted">${new Date(q.created_at).toLocaleString()}</span>
         <span class="badge b-${q.status === "new" ? "pending" : q.status === "booked" ? "confirmed" : "unpaid"}">${q.status}</span>
-        ${q.photos.length ? `<span class="muted">📷 ${q.photos.length}</span>` : ""}</summary>
+        ${q.photos.length ? `<span class="muted">📷 ${q.photos.length}</span>` : ""}
+        ${q.is_contractor ? '<span class="badge b-pending">contractor</span>' : ""}</summary>
       <dl class="dl">
         <dt>Phone</dt><dd><a href="tel:${esc(q.phone)}">${esc(q.phone)}</a></dd>
         <dt>Email</dt><dd><a href="mailto:${esc(q.email)}">${esc(q.email)}</a></dd>
         <dt>Service</dt><dd>${esc(q.service || "—")}${q.zip ? ` · ZIP ${esc(q.zip)}` : ""}</dd>
+        ${q.delivery_address ? `<dt>Address</dt><dd>${esc(q.delivery_address)}</dd>` : ""}
+        ${q.booking_id ? `<dt>Booking</dt><dd><a href="#" data-open-booking="${q.booking_id}">Open booking</a></dd>` : ""}
         <dt>Heard about us</dt><dd>${esc(q.referral_source || "—")}</dd>
         <dt>Details</dt><dd>${esc(q.details || "—")}</dd>
       </dl>
@@ -1390,10 +1819,16 @@ views.quotes = async (main) => {
         <label>Status<select class="q-status">${["new", "contacted", "booked", "closed"].map((s) => `<option ${s === q.status ? "selected" : ""}>${s}</option>`).join("")}</select></label>
         <label>Notes<input class="q-notes" value="${esc(q.admin_notes || "")}"></label>
       </div>
-      <div class="actions" style="margin-top:8px"><button class="btn btn-primary btn-sm" data-save>Save</button></div>
+      <div class="actions" style="margin-top:8px"><button class="btn btn-primary btn-sm" data-save>Save</button>
+        ${!q.booking_id && q.status !== "closed" ? '<button class="btn btn-primary btn-sm" data-book>Create booking</button>' : ""}</div>
     </details>`).join("") || '<div class="empty">No quote requests yet.</div>';
-  $("#q-list").querySelectorAll(".quote-card").forEach((card) => guarded(card.querySelector("[data-save]"), async () => {
-    await post("admin-quotes", { id: card.dataset.id, status: card.querySelector(".q-status").value, admin_notes: card.querySelector(".q-notes").value });
-    toast("Saved"); render("quotes");
-  }));
+  $("#q-list").querySelectorAll(".quote-card").forEach((card) => {
+    const q = quotes.find((x) => x.id === card.dataset.id);
+    guarded(card.querySelector("[data-save]"), async () => {
+      await post("admin-quotes", { id: q.id, status: card.querySelector(".q-status").value, admin_notes: card.querySelector(".q-notes").value });
+      toast("Saved"); render("quotes");
+    });
+    card.querySelector("[data-book]")?.addEventListener("click", () => openNewBookingForm(null, () => render("quotes"), { quote: q }));
+    card.querySelector("[data-open-booking]")?.addEventListener("click", (e) => { e.preventDefault(); openBooking(q.booking_id); });
+  });
 };

@@ -35,6 +35,7 @@ Site config → **Environment variables**. Paste all of these (values from the t
 | `STRIPE_WEBHOOK_SECRET`       | Stripe webhook — `whsec_…`                                    |
 | `GOOGLE_SERVICE_ACCOUNT_JSON` | client — full JSON on one line                                |
 | `GOOGLE_CALENDAR_ID`          | client                                                        |
+| `GOOGLE_MAPS_API_KEY`         | client — Google Cloud key with the **Routes API** enabled (see below) |
 | `RESEND_API_KEY`              | optional                                                      |
 | `EMAIL_FROM`                  | `Texas Dumpster Co <bookings@texasdumpsterco.com>` (must be on the Resend-verified `texasdumpsterco.com` domain) |
 | `EMAIL_REPLY_TO`              | optional, defaults to `texasdumpsterco@gmail.com` (customer replies land here) |
@@ -62,8 +63,38 @@ Create in Stripe (Developers → Webhooks) pointing at the deployed site:
   (automatic) is not used, so no Stripe Tax registration is required.
 - Admin → Inventory & Pricing → **Sync all to Stripe** creates a Stripe Product per type/add-on and a Price per
   rental length. New and edited items sync automatically on save.
-- Weight overage: staff use **Record weight** on a dumpster booking; the customer is emailed a Stripe Pay link,
-  and staff may **Charge saved card**. Nothing is charged automatically.
+- Weight overage: staff use **Record weight** on a dumpster booking; the overage becomes a charge line, the
+  customer is emailed a Stripe pay link, and staff may **Charge saved card**. Nothing is charged automatically.
+
+## Quotes, invoices and later charges
+
+- A quote request (homepage form, a quote-only item, a 35+ mile job, or any contractor booking) is priced in the
+  booking drawer with **Build invoice & confirm**: itemized lines (rental, mileage, fees, discount). Saving
+  confirms the booking and emails the itemized price; **Email pay link** sends a Stripe Checkout link that also
+  saves the card. Homepage quote requests become bookings with **Create booking** (Quote Requests tab or
+  Contractors → Queue).
+- After the job, **+ Add charge** (weight, extra mileage, extra days, a fee from the fee schedule, or other), then
+  **Charge saved card** (receipt emailed) or **Email pay link**. Unpaid charges can be removed (their invoice is
+  voided). Lines live in `booking_charges`; the booking total follows them.
+
+## Contractors
+
+- Contractors apply on the homepage (or tick "I'm a contractor" when booking / requesting a quote). Applications
+  wait in Admin → Contractors → **Queue**; **Approve** assigns the contractor number and emails it.
+- Accounts are found by number, phone or email. Contractor online bookings never charge a card: they land in the
+  Queue as requests and staff price them with the invoice builder.
+- **Tax exempt** (contractor drawer) stores the certificate number and an uploaded copy; their bookings and
+  invoices carry no sales tax.
+
+## Distance pricing (Google Maps)
+
+- Admin → Settings → **Delivery distance**: yard address (default 1725 County Road 269, Leander, TX 78641), free
+  radius 15 mi, $1.85/mile, online limit 35 mi one way, round trip on. Billed miles = round trip − 2 × radius,
+  rounded up. Past the limit the booking becomes a call-for-quote request.
+- Needs `GOOGLE_MAPS_API_KEY`: Google Cloud console → APIs & Services → enable **Routes API** → Credentials →
+  Create API key → restrict it to the Routes API. Billing must be on; normal volume fits in the monthly free
+  credit. Without the key the booking page falls back to the old distance-zone picker.
+- Migration `20261006000001_contractor_queue_distance.sql` adds the tables/columns for all of the above.
 
 ## Deploy
 
