@@ -90,7 +90,7 @@ Create in Stripe (Developers → Webhooks) pointing at the deployed site:
 
 - Admin → Settings → **Delivery distance**: yard address (default 1725 County Road 269, Leander, TX 78641), free
   radius 15 mi, $1.85/mile, online limit 35 mi one way, round trip on. Billed miles = round trip − 2 × radius,
-  rounded up. Past the limit the booking becomes a call-for-quote request.
+  rounded up (client confirmed this formula 2026-10-06). Past the limit the booking becomes a call-for-quote request.
 - Needs `GOOGLE_MAPS_API_KEY`: Google Cloud console → APIs & Services → enable **Routes API** → Credentials →
   Create API key → restrict it to the Routes API. Billing must be on; normal volume fits in the monthly free
   credit. Without the key the booking page falls back to the old distance-zone picker.
