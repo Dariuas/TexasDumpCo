@@ -1070,8 +1070,8 @@ views.settings = async (main) => {
     <h3>Fee schedule <span class="hint">(shown to customers on the website under “Fees &amp; Policies”)</span></h3>
     <div class="form">
       <div id="fee-list"></div>
-      <div class="actions"><button class="btn btn-ghost btn-sm" id="fee-add" type="button">+ Add fee</button><button class="btn btn-primary btn-sm" id="fee-save" type="button">Save fee schedule</button></div>
-      <p class="hint">“From” shows as “from $X” on the website. Unit is optional (e.g. “ton”, “day”).</p>
+      <div class="actions"><button class="btn btn-ghost btn-sm" id="fee-add" type="button">+ Add fee</button><button class="btn btn-primary btn-sm" id="fee-save" type="button">Save fee schedule</button><span class="hint" id="fee-dirty" hidden style="color:#c0392b">Unsaved changes — click Save fee schedule</span></div>
+      <p class="hint">“From” shows as “from $X” on the website. Unit is optional (e.g. “ton”, “day”). Details appear in the Details column on the website. Remove takes effect on the website right away.</p>
     </div>
 
     <h3>“How did you hear about us?” choices</h3>
@@ -1107,11 +1107,27 @@ views.settings = async (main) => {
         <input class="fe-amt" type="number" step="0.01" value="${(f.amount_cents / 100).toFixed(2)}" title="Amount ($)">
         <label class="chk"><input class="fe-from" type="checkbox" ${f.from ? "checked" : ""}> from</label>
         <input class="fe-unit" value="${esc(f.unit || "")}" placeholder="unit (ton, day…)">
-        <input class="fe-note" value="${esc(f.note || "")}" placeholder="Details (optional)">
         <button class="btn btn-ghost btn-sm fe-del" type="button">Remove</button>
+        <textarea class="fe-note" rows="2" placeholder="Details shown to customers (optional), e.g. when this fee applies">${esc(f.note || "")}</textarea>
       </div>`).join("") || '<p class="muted">No fees yet.</p>';
-    $("#fee-list").querySelectorAll(".fe-del").forEach((b) => b.addEventListener("click", () => { syncFees(); fees.splice(+b.closest(".fee-row").dataset.i, 1); drawFees(); }));
+    $("#fee-list").querySelectorAll(".fe-del").forEach((b) => b.addEventListener("click", async () => {
+      const row = b.closest(".fee-row");
+      const label = row.querySelector(".fe-label").value.trim() || "this fee";
+      if (!confirm(`Remove “${label}” from the website fee schedule?`)) return;
+      syncFees();
+      fees.splice(+row.dataset.i, 1);
+      drawFees();
+      await saveFees(`Removed “${label}” — website updated`);
+    }));
   };
+  const setDirty = (on) => { $("#fee-dirty").hidden = !on; };
+  const saveFees = async (msg) => {
+    syncFees();
+    await post("admin-settings", { settings: { fee_schedule: fees.filter((f) => f.label) } });
+    setDirty(false);
+    toast(msg);
+  };
+  $("#fee-list").addEventListener("input", () => setDirty(true));
   const syncFees = () => {
     fees = [...$("#fee-list").querySelectorAll(".fee-row")].map((r) => ({
       label: r.querySelector(".fe-label").value.trim(), amount_cents: cents(r.querySelector(".fe-amt").value),
@@ -1119,12 +1135,8 @@ views.settings = async (main) => {
     }));
   };
   drawFees();
-  $("#fee-add").addEventListener("click", () => { syncFees(); fees.push({ label: "", amount_cents: 0, from: false, unit: "", note: "" }); drawFees(); });
-  guarded($("#fee-save"), async () => {
-    syncFees();
-    await post("admin-settings", { settings: { fee_schedule: fees.filter((f) => f.label) } });
-    toast("Fee schedule saved — live on the website");
-  });
+  $("#fee-add").addEventListener("click", () => { syncFees(); fees.push({ label: "", amount_cents: 0, from: false, unit: "", note: "" }); drawFees(); setDirty(true); });
+  guarded($("#fee-save"), () => saveFees("Fee schedule saved — live on the website"));
   guarded($("#s-sources-save"), async () => {
     await post("admin-settings", { settings: { referral_sources: $("#s-sources").value.split("\n").map((x) => x.trim()).filter(Boolean) } });
     toast("Saved");

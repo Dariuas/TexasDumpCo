@@ -32,9 +32,45 @@ let applyLivePrices = () => {};
       if (cents != null) el.textContent = fmt(cents);
     });
     applyLivePrices();
+
+    // Standard roll-off terms quoted in the copy (Inventory tab: extra day, overage, included weight).
+    const std = byCat.roll_off_standard?.[0];
+    if (std) {
+      setLive('std_extra_day', std.extra_day_fee_cents != null && fmt(std.extra_day_fee_cents));
+      setLive('std_overage', std.overage_fee_cents != null && fmt(std.overage_fee_cents));
+      if (std.weight_limit_tons != null) {
+        setLive('std_tons', String(Number(std.weight_limit_tons)));
+        setLive('std_lbs', Math.round(std.weight_limit_tons * 2000).toLocaleString('en-US'));
+      }
+    }
   } catch {
     // Catalog unreachable — keep the static fallback prices already in the HTML.
   }
+})();
+
+// Fill every <span data-live="key"> with a value (no-op when the value is missing).
+function setLive(key, text) {
+  if (!text) return;
+  document.querySelectorAll(`[data-live="${key}"]`).forEach((el) => { el.textContent = text; });
+}
+
+// Admin Settings values (one shared fetch). Each consumer keeps its static fallback if this fails.
+const publicConfig = fetch('/api/public-config').then((r) => (r.ok ? r.json() : null)).catch(() => null);
+
+// Phone number and delivery zone fees from Back Office -> Settings.
+(async () => {
+  const cfg = await publicConfig;
+  if (!cfg) return;
+  const digits = (cfg.companyPhone || '').replace(/\D/g, '');
+  if (digits.length >= 10) {
+    setLive('phone', cfg.companyPhone);
+    const tel = `tel:${digits.length === 10 ? '1' + digits : digits}`;
+    document.querySelectorAll('[data-live-phone]').forEach((a) => { a.href = tel; });
+  }
+  const fmt = (cents) => `$${Math.round(cents / 100)}`;
+  (cfg.distanceZones || []).forEach((z) => {
+    if (z && z.code && !z.quote_only && z.fee_cents != null) setLive(z.code, fmt(z.fee_cents));
+  });
 })();
 
 // Live contractor pricing: same fallback-overwrite pattern as above, sourced
@@ -44,20 +80,16 @@ let applyLivePrices = () => {};
 (async () => {
   const els = document.querySelectorAll('[data-contractor-key]');
   if (!els.length) return;
-  try {
-    const res = await fetch('/api/public-config');
-    if (!res.ok) return;
-    const { contractorRateCard = {} } = await res.json();
-    const fmt = (cents) => `$${Math.round(cents / 100)}`;
-    els.forEach((el) => {
-      const cents = contractorRateCard[el.dataset.contractorKey];
-      if (cents == null) return;
-      const suffix = el.textContent.trim().endsWith('each') ? ' each' : '';
-      el.textContent = fmt(cents) + suffix;
-    });
-  } catch {
-    // Config unreachable — keep the static fallback prices already in the HTML.
-  }
+  const cfg = await publicConfig;
+  if (!cfg) return;
+  const contractorRateCard = cfg.contractorRateCard || {};
+  const fmt = (cents) => `$${Math.round(cents / 100)}`;
+  els.forEach((el) => {
+    const cents = contractorRateCard[el.dataset.contractorKey];
+    if (cents == null) return;
+    const suffix = el.textContent.trim().endsWith('each') ? ' each' : '';
+    el.textContent = fmt(cents) + suffix;
+  });
 })();
 
 // Mobile nav toggle
@@ -99,8 +131,8 @@ if (quiz) {
     'household|crew':    { tab: 'junk',        title: 'Full-Service Junk Hauling', copy: "Skip the lifting — our crew loads and hauls your household junk and furniture away, start to finish.", amigo: false },
     'renovation|self':   { tab: 'residential', title: '14-Yard Roll-Off Rental', copy: "A self-load dumpster on site lets your crew or family toss remodel debris as the project moves.", amigo: true },
     'renovation|crew':   { tab: 'junk',        title: 'Full-Service Junk Hauling', copy: "Let our crew load and remove your remodel debris so you can stay focused on the project.", amigo: false },
-    'yard|self':         { tab: 'yard',        title: 'Yard Waste Roll-Off Rental', copy: "Drop a dumpster on site and load brush, branches and yard debris on your own time.", amigo: true },
-    'yard|crew':         { tab: 'yard',        title: 'Full-Service Brush Hauling', copy: "Our crew loads and hauls your yard waste and brush away — no dumpster required.", amigo: false },
+    'yard|self':         { tab: 'residential', title: 'Yard Waste Roll-Off Rental', copy: "Drop a dumpster on site and load brush, branches and yard debris on your own time.", amigo: true },
+    'yard|crew':         { tab: 'junk',        title: 'Full-Service Brush Hauling', copy: "Our crew loads and hauls your yard waste and brush away — no dumpster required.", amigo: false },
     'heavy':              { tab: 'heavy',       title: 'Heavy Material Pricing', copy: "Concrete, dirt, brick and similar material is priced by weight, not container size — see rates below.", amigo: true },
     'contractor':         { tab: 'contractor',  title: 'Contractor & Repeat-Account Pricing', copy: "Volume rates for builders, roofers and property managers — pricing improves automatically with your monthly usage.", amigo: true },
     'unsure':              { tab: 'residential', title: "Start Here — 14-Yard Roll-Off Rental", copy: "Our most popular option while you figure out the details. Call us and we'll help dial in the right fit.", amigo: true },
@@ -111,7 +143,6 @@ if (quiz) {
   const resultTitle = document.getElementById('quiz-result-title');
   const resultCopy = document.getElementById('quiz-result-copy');
   const resultCta = document.getElementById('quiz-result-cta');
-  const amigoBox = document.getElementById('quiz-amigo');
   let chosenType = null;
 
   const showStep = (name) => {
@@ -131,7 +162,6 @@ if (quiz) {
     // with the right service pre-selected.
     const service = result.amigo ? 'dumpster' : 'junk';
     if (bookCta) bookCta.href = `/book/?service=${service}`;
-    amigoBox.hidden = false;
     showStep('result');
   };
 
@@ -321,17 +351,13 @@ if (form) {
 (async () => {
   const body = document.getElementById('fee-rows');
   if (!body) return;
-  try {
-    const res = await fetch('/api/public-config');
-    if (!res.ok) return;
-    const { feeSchedule = [] } = await res.json();
-    if (!feeSchedule.length) return;
-    const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[m]));
-    body.innerHTML = feeSchedule.map((f) => {
-      const amt = `$${(f.amount_cents / 100).toFixed(f.amount_cents % 100 ? 2 : 0)}`;
-      return `<tr><td>${esc(f.label)}</td><td class="price">${f.from ? 'from ' : ''}${amt}${f.unit ? ' / ' + esc(f.unit) : ''}</td><td>${esc(f.note)}</td></tr>`;
-    }).join('');
-  } catch { /* keep static fallback rows */ }
+  const cfg = await publicConfig;
+  if (!cfg || !Array.isArray(cfg.feeSchedule)) return; // keep static fallback rows
+  const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[m]));
+  body.innerHTML = cfg.feeSchedule.map((f) => {
+    const amt = `$${(f.amount_cents / 100).toFixed(f.amount_cents % 100 ? 2 : 0)}`;
+    return `<tr><td>${esc(f.label)}</td><td class="price">${f.from ? 'from ' : ''}${amt}${f.unit ? ' / ' + esc(f.unit) : ''}</td><td>${esc(f.note).replace(/\n/g, '<br>')}</td></tr>`;
+  }).join('') || '<tr><td colspan="3">No additional fees.</td></tr>';
 })();
 
 // Contractor signup: gets a contractor number immediately; pricing turns on after admin approval.

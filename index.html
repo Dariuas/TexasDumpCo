@@ -61,9 +61,9 @@
       </ul>
     </nav>
     <div class="header-cta">
-      <a class="phone-link" href="tel:15123374340">
+      <a class="phone-link" href="tel:15123374340" data-live-phone>
         <small>Call Now</small>
-        <strong>(512) 337-4340</strong>
+        <strong><span data-live="phone">(512) 337-4340</span></strong>
       </a>
       <a href="/book" class="btn btn-primary">Book Online</a>
       <button class="nav-toggle" id="nav-toggle" aria-label="Toggle menu"><span></span></button>
@@ -87,7 +87,7 @@
         <h1>Clear it out. <em>Texas tough.</em></h1>
         <p class="hero-sub">Book a roll-off dumpster or a full-service haul-away crew in one call. One starting price, delivered on your schedule — no surprise fees buried in fine print.</p>
         <div class="hero-actions">
-          <a href="tel:15123374340" class="btn btn-primary">Call (512) 337-4340</a>
+          <a href="tel:15123374340" data-live-phone class="btn btn-primary">Call <span data-live="phone">(512) 337-4340</span></a>
           <a href="#pricing" class="btn btn-ghost">See Pricing</a>
         </div>
         <div class="hero-badges">
@@ -114,7 +114,7 @@
             <ul class="hero-panel-list">
               <li>14-yard roll-off dumpster</li>
               <li>Delivery + pickup included</li>
-              <li>Up to 1.5 tons (3,000 lb) disposal</li>
+              <li>Up to <span data-live="std_tons">1.5</span> tons (<span data-live="std_lbs">3,000</span> lb) disposal</li>
               <li>0&ndash;15 mile delivery zone included</li>
             </ul>
             <a href="#pricing" class="btn btn-dark btn-block">View All Pricing</a>
@@ -169,17 +169,7 @@
           <p id="quiz-result-copy"></p>
           <div class="quiz-result-actions">
             <a href="#pricing" class="btn btn-primary" id="quiz-result-cta">See Pricing</a>
-            <a href="/book" class="btn btn-ghost">Book Online</a>
-          </div>
-
-          <div class="quiz-amigo" id="quiz-amigo" hidden>
-            <div class="quiz-amigo-head">
-              <strong>Prefer to book it yourself, right now?</strong>
-              <p>Check live availability, upload a few photos, and reserve online in a couple of minutes.</p>
-            </div>
-            <div class="quiz-amigo-actions">
-              <a href="/book" class="btn btn-primary" id="quiz-book-cta">Book Online Now</a>
-            </div>
+            <a href="/book" class="btn btn-ghost" id="quiz-book-cta">Book Online</a>
           </div>
 
           <button type="button" class="quiz-restart">Start Over</button>
@@ -252,9 +242,8 @@
       <button class="pricing-tab" role="tab" data-tab="residential" aria-selected="true"><span class="n">1</span>Dumpster Rentals</button>
       <button class="pricing-tab" role="tab" data-tab="contractor" aria-selected="false"><span class="n">2</span>Contractor Pricing</button>
       <button class="pricing-tab" role="tab" data-tab="junk" aria-selected="false"><span class="n">3</span>Junk Hauling</button>
-      <button class="pricing-tab" role="tab" data-tab="yard" aria-selected="false"><span class="n">4</span>Yard Waste &amp; Brush</button>
-      <button class="pricing-tab" role="tab" data-tab="heavy" aria-selected="false"><span class="n">5</span>Heavy Materials</button>
-      <button class="pricing-tab" role="tab" data-tab="fees" aria-selected="false"><span class="n">6</span>Fees &amp; Policies</button>
+      <button class="pricing-tab" role="tab" data-tab="heavy" aria-selected="false"><span class="n">4</span>Heavy Materials</button>
+      <button class="pricing-tab" role="tab" data-tab="fees" aria-selected="false"><span class="n">5</span>Fees &amp; Policies</button>
     </div>
 
     <!-- TAB 1: RESIDENTIAL ROLL-OFF -->
@@ -269,11 +258,11 @@
         <table class="price-table">
           <thead><tr><th>Rental Length</th><th>Starting Price</th><th>Included</th><th>Best For</th></tr></thead>
           <tbody>
-            <tr><td>1 Day &mdash; Quick Load</td><td class="price" data-price-cat="roll_off_standard" data-price-days="1">$349</td><td>1.5 tons</td><td>Fast cleanout / one-day project</td></tr>
-            <tr><td>3 Days</td><td class="price" data-price-cat="roll_off_standard" data-price-days="3">$379</td><td>1.5 tons</td><td>Garage, room, small remodel</td></tr>
-            <tr class="popular"><td>7 Days <span class="badge-pop">Most Popular</span></td><td class="price" data-price-cat="roll_off_standard" data-price-days="7">$419</td><td>1.5 tons</td><td>Typical cleanout / remodel</td></tr>
-            <tr><td>14 Days</td><td class="price" data-price-cat="roll_off_standard" data-price-days="14">$549</td><td>1.5 tons</td><td>Longer renovation / estate cleanout</td></tr>
-            <tr><td>28 Days</td><td class="price" data-price-cat="roll_off_standard" data-price-days="28">$749</td><td>1.5 tons</td><td>Extended residential project</td></tr>
+            <tr><td>1 Day &mdash; Quick Load</td><td class="price" data-price-cat="roll_off_standard" data-price-days="1">$349</td><td><span data-live="std_tons">1.5</span> tons</td><td>Fast cleanout / one-day project</td></tr>
+            <tr><td>3 Days</td><td class="price" data-price-cat="roll_off_standard" data-price-days="3">$379</td><td><span data-live="std_tons">1.5</span> tons</td><td>Garage, room, small remodel</td></tr>
+            <tr class="popular"><td>7 Days <span class="badge-pop">Most Popular</span></td><td class="price" data-price-cat="roll_off_standard" data-price-days="7">$419</td><td><span data-live="std_tons">1.5</span> tons</td><td>Typical cleanout / remodel</td></tr>
+            <tr><td>14 Days</td><td class="price" data-price-cat="roll_off_standard" data-price-days="14">$549</td><td><span data-live="std_tons">1.5</span> tons</td><td>Longer renovation / estate cleanout</td></tr>
+            <tr><td>28 Days</td><td class="price" data-price-cat="roll_off_standard" data-price-days="28">$749</td><td><span data-live="std_tons">1.5</span> tons</td><td>Extended residential project</td></tr>
           </tbody>
         </table>
       </div>
@@ -281,8 +270,8 @@
         <img src="assets/images/14-yard-dumpster-dimensions.jpg" alt="Texas Dumpster Co 14-yard roll-off dumpster dimensions — 14 ft long, 6 ft 11 in wide, 4 ft high">
       </div>
       <div class="pricing-notes">
-        <div class="pricing-note"><h4>What's included</h4><p>14-yard roll-off dumpster, delivery + pickup, rental time shown, up to 1.5 tons (3,000 lb) disposal, and standard placement within our 0&ndash;15 mile delivery zone.</p></div>
-        <div class="pricing-note"><h4>Common add-ons</h4><p>Extra day $15 &middot; Extra week $90 &middot; Debris overage $90/ton (heavy materials excluded, see tab 5) &middot; 16&ndash;25 mi zone +$35 &middot; 26&ndash;35 mi zone +$65</p></div>
+        <div class="pricing-note"><h4>What's included</h4><p>14-yard roll-off dumpster, delivery + pickup, rental time shown, up to <span data-live="std_tons">1.5</span> tons (<span data-live="std_lbs">3,000</span> lb) disposal, and standard placement within our 0&ndash;15 mile delivery zone.</p></div>
+        <div class="pricing-note"><h4>Common add-ons</h4><p>Extra day <span data-live="std_extra_day">$15</span> &middot; Extra week $90 &middot; Debris overage <span data-live="std_overage">$90</span>/ton (heavy materials excluded, see tab 4) &middot; 16&ndash;25 mi zone +<span data-live="zone2">$35</span> &middot; 26&ndash;35 mi zone +<span data-live="zone3">$65</span></p></div>
       </div>
     </div>
 
@@ -298,17 +287,17 @@
         <table class="price-table">
           <thead><tr><th>Program</th><th>Starting Price</th><th>Included</th><th>Requirement</th></tr></thead>
           <tbody>
-            <tr><td>Standard Contractor &mdash; 7 Day</td><td class="price" data-contractor-key="standard_7day_cents">$389</td><td>1.5 tons</td><td>2&ndash;3 rentals/mo or established account</td></tr>
-            <tr><td>Volume &mdash; 4&ndash;7 Rentals/Mo</td><td class="price" data-contractor-key="volume_4_7_cents">$379 each</td><td>1.5 tons</td><td>Consistent monthly volume</td></tr>
-            <tr><td>Volume &mdash; 8+ Rentals/Mo</td><td class="price" data-contractor-key="volume_8plus_cents">$369 each</td><td>1.5 tons</td><td>High-volume account</td></tr>
-            <tr><td>28-Day Jobsite Rental</td><td class="price" data-contractor-key="jobsite_28day_cents">$689</td><td>1.5 tons</td><td>Container remains on one site</td></tr>
-            <tr><td>Dump &amp; Return / Swap</td><td class="price" data-contractor-key="dump_and_return_cents">$299</td><td>1.5 tons</td><td>Same site; empty and return container</td></tr>
+            <tr><td>Standard Contractor &mdash; 7 Day</td><td class="price" data-contractor-key="standard_7day_cents">$389</td><td><span data-live="std_tons">1.5</span> tons</td><td>2&ndash;3 rentals/mo or established account</td></tr>
+            <tr><td>Volume &mdash; 4&ndash;7 Rentals/Mo</td><td class="price" data-contractor-key="volume_4_7_cents">$379 each</td><td><span data-live="std_tons">1.5</span> tons</td><td>Consistent monthly volume</td></tr>
+            <tr><td>Volume &mdash; 8+ Rentals/Mo</td><td class="price" data-contractor-key="volume_8plus_cents">$369 each</td><td><span data-live="std_tons">1.5</span> tons</td><td>High-volume account</td></tr>
+            <tr><td>28-Day Jobsite Rental</td><td class="price" data-contractor-key="jobsite_28day_cents">$689</td><td><span data-live="std_tons">1.5</span> tons</td><td>Container remains on one site</td></tr>
+            <tr><td>Dump &amp; Return / Swap</td><td class="price" data-contractor-key="dump_and_return_cents">$299</td><td><span data-live="std_tons">1.5</span> tons</td><td>Same site; empty and return container</td></tr>
           </tbody>
         </table>
       </div>
       <div class="pricing-notes">
         <div class="pricing-note"><h4>Account setup</h4><p>Card on file or an approved billing arrangement. New contractors start at $389/7-day; volume rates are earned by actual repeat usage.</p></div>
-        <div class="pricing-note"><h4>Heavy material exception</h4><p>Concrete, brick, dirt, rock, gravel, tile and shingles use weight-based Heavy Material pricing (tab 5) instead of the standard rental + overage rate.</p></div>
+        <div class="pricing-note"><h4>Heavy material exception</h4><p>Concrete, brick, dirt, rock, gravel, tile and shingles use weight-based Heavy Material pricing (tab 4) instead of the standard rental + overage rate.</p></div>
       </div>
       <div class="contractor-signup" id="contractor-signup">
         <h4>Get your contractor number</h4>
@@ -355,33 +344,7 @@
       </div>
     </div>
 
-    <!-- TAB 4: YARD WASTE -->
-    <div class="pricing-panel" data-panel="yard">
-      <div class="pricing-panel-head">
-        <div>
-          <h3>Yard Waste &amp; Brush</h3>
-          <p>Clean tree limbs, branches, brush, leaves and untreated natural wood &mdash; choose a self-load dumpster or a full-service crew pickup.</p>
-        </div>
-      </div>
-      <div class="price-table-wrap">
-        <table class="price-table">
-          <thead><tr><th>Roll-Off Rental</th><th>Starting Price</th><th>Included</th><th>Best For</th></tr></thead>
-          <tbody>
-            <tr><td>1 Day</td><td class="price" data-price-cat="roll_off_green" data-price-days="1">$329</td><td>One clean 14-yd load</td><td>Same-day / next-day yard cleanup</td></tr>
-            <tr><td>3 Days</td><td class="price" data-price-cat="roll_off_green" data-price-days="3">$349</td><td>One clean 14-yd load</td><td>Tree trimming / storm cleanup</td></tr>
-            <tr><td>7 Days</td><td class="price" data-price-cat="roll_off_green" data-price-days="7">$389</td><td>One clean 14-yd load</td><td>Large yard / landscaping project</td></tr>
-            <tr><td>14 Days</td><td class="price" data-price-cat="roll_off_green" data-price-days="14">$489</td><td>One clean 14-yd load</td><td>Extended clearing job</td></tr>
-            <tr><td>28 Days</td><td class="price" data-price-cat="roll_off_green" data-price-days="28">$649</td><td>One clean 14-yd load</td><td>Long landscaping / property cleanup</td></tr>
-          </tbody>
-        </table>
-      </div>
-      <div class="pricing-notes">
-        <div class="pricing-note"><h4>Full-service brush hauling</h4><p>Minimum $149 &middot; 1/4 load $225&ndash;$249 &middot; 1/2 load $349&ndash;$399 &middot; 3/4 load $499&ndash;$549 &middot; Full load $649&ndash;$699. Our crew loads and hauls it away.</p></div>
-        <div class="pricing-note"><h4>Clean-load only</h4><p>Branches roughly 4 ft or shorter, no more than ~12 in diameter. No dirt-attached root balls, treated/painted lumber, fencing or household trash. Large stumps are custom quoted.</p></div>
-      </div>
-    </div>
-
-    <!-- TAB 5: HEAVY MATERIALS -->
+    <!-- TAB 4: HEAVY MATERIALS -->
     <div class="pricing-panel" data-panel="heavy">
       <div class="pricing-panel-head">
         <div>
@@ -406,7 +369,7 @@
       </div>
     </div>
 
-    <!-- TAB 6: FEE SCHEDULE (rows come from the admin-editable fee schedule) -->
+    <!-- TAB 5: FEE SCHEDULE (rows come from the admin-editable fee schedule) -->
     <div class="pricing-panel" data-panel="fees">
       <div class="pricing-panel-head">
         <div>
@@ -542,8 +505,8 @@
         <h2>Ready to get it gone?</h2>
         <p>Call now for the fastest response, or send us your project details and we'll get back to you with a quote.</p>
         <div class="book-contact">
-          <a href="tel:15123374340">
-            <span class="ico">&#9742;</span> (512) 337-4340
+          <a href="tel:15123374340" data-live-phone>
+            <span class="ico">&#9742;</span> <span data-live="phone">(512) 337-4340</span>
           </a>
           <a href="mailto:texasdumpsterco@gmail.com">
             <span class="ico">&#9993;</span> texasdumpsterco@gmail.com
@@ -617,7 +580,7 @@
         <div class="form-success" id="form-success">
           <div class="check">&#10003;</div>
           <h3 style="text-transform:uppercase; font-size:1.3rem;">Got it!</h3>
-          <p style="margin-top:10px; color:var(--steel);">Thanks &mdash; we'll reach out shortly. For faster service, call <a href="tel:15123374340" style="text-decoration:underline;">(512) 337-4340</a>.</p>
+          <p style="margin-top:10px; color:var(--steel);">Thanks &mdash; we'll reach out shortly. For faster service, call <a href="tel:15123374340" data-live-phone style="text-decoration:underline;"><span data-live="phone">(512) 337-4340</span></a>.</p>
         </div>
       </form>
     </div>
@@ -655,7 +618,7 @@
       <div class="footer-col">
         <h4>Contact</h4>
         <ul>
-          <li><a href="tel:15123374340">(512) 337-4340</a></li>
+          <li><a href="tel:15123374340" data-live-phone><span data-live="phone">(512) 337-4340</span></a></li>
           <li><a href="mailto:texasdumpsterco@gmail.com">texasdumpsterco@gmail.com</a></li>
         </ul>
       </div>
@@ -674,7 +637,7 @@
 
 <!-- ============================= MOBILE CALL BAR ============================= -->
 <div class="mobile-call-bar">
-  <a href="tel:15123374340" class="btn btn-primary">Call (512) 337-4340</a>
+  <a href="tel:15123374340" data-live-phone class="btn btn-primary">Call <span data-live="phone">(512) 337-4340</span></a>
   <a href="/book" class="btn btn-dark">Book Online</a>
 </div>
 

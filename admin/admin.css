@@ -115,9 +115,10 @@ body.admin{ background:var(--paper); }
 .wysiwyg-src{ width:100%; font-family:monospace; font-size:.8rem; border:2px solid var(--black); padding:10px; }
 .field-label{ display:block; font-family:var(--tag); font-weight:600; text-transform:uppercase; letter-spacing:.05em; font-size:.72rem; margin:10px 0 4px; }
 /* fee schedule editor */
-.fee-row{ display:grid; grid-template-columns:2fr 90px auto 1fr 2fr auto; gap:8px; align-items:center; margin-bottom:8px; }
+.fee-row{ display:grid; grid-template-columns:2fr 90px auto 1fr auto; gap:8px; align-items:center; margin-bottom:14px; padding-bottom:14px; border-bottom:1px solid #e5e5e5; }
 @media(max-width:720px){ .fee-row{ grid-template-columns:1fr 1fr; } }
-.fee-row input:not([type=checkbox]){ margin-top:0; }
+.fee-row input:not([type=checkbox]), .fee-row textarea{ margin-top:0; }
+.fee-row .fe-note{ grid-column:1 / -1; resize:vertical; }
 /* slides, notices, report bars */
 .slide-card summary{ cursor:pointer; display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
 .slide-order{ margin-left:auto; display:flex; gap:4px; }

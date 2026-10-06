@@ -52,6 +52,13 @@ const state = {
     state.types = catalog.types;
     state.tiers = catalog.tiers;
     state.addons = catalog.addons;
+    const phoneDigits = (config.companyPhone || "").replace(/\D/g, "");
+    if (phoneDigits.length >= 10) {
+      document.querySelectorAll(".book-phone").forEach((a) => {
+        a.textContent = config.companyPhone;
+        a.href = `tel:${phoneDigits.length === 10 ? "1" + phoneDigits : phoneDigits}`;
+      });
+    }
     if (config.supabaseUrl && config.supabaseAnonKey) {
       state.supabase = createClient(config.supabaseUrl, config.supabaseAnonKey);
     }
