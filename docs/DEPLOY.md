@@ -84,5 +84,12 @@ Create in Stripe (Developers → Webhooks) pointing at the deployed site:
    and (if Resend set) a confirmation email arrived.
 4. In `/admin`, open the booking → **Refund** a few dollars → confirm it shows in payment history.
 5. Toggle **Settings → Accept cash = Yes**, book again choosing cash → approve it from the dashboard.
-6. Flip Stripe to **Live** keys + live webhook, do one real card booking + immediate refund, then
-   you're production-ready.
+6. Flip Stripe to **Live**:
+   - In Stripe **Live** mode, add the webhook (same URL and all five events as above) and copy its
+     signing secret.
+   - In Netlify, set `STRIPE_SECRET_KEY`, `STRIPE_PUBLISHABLE_KEY` and `STRIPE_WEBHOOK_SECRET` to
+     the live values, then trigger a redeploy (env changes apply only to new deploys).
+   - Open `/admin` → Inventory → **Sync all**. The site notices the key changed from test to live
+     on its own and re-creates the products, prices and sales-tax rate in live mode. Old test
+     bookings keep test-mode Stripe ids: don't refund or bill them after the switch.
+   - Do one real card booking + immediate refund, then you're production-ready.

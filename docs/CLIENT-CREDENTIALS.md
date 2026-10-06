@@ -71,7 +71,7 @@ We need your Stripe **keys** and a **webhook**. Start in **Test mode** so we can
 1. Go to **Developers → Webhooks → + Add endpoint**.
 2. Endpoint URL: we'll give you the exact address once the site is live — it will look like
    `https://texasdumpco.netlify.app/api/stripe-webhook`.
-3. Under **Select events**, add: `checkout.session.completed`, `payment_intent.succeeded`, `charge.refunded`.
+3. Under **Select events**, add: `checkout.session.completed`, `payment_intent.succeeded`, `charge.refunded`, `invoice.paid`, `invoice.payment_failed`.
 4. Click **Add endpoint**, then on the endpoint page click **Reveal** under **Signing secret** and copy it
    (starts with `whsec_...`). ✅ **Send us this.**
 

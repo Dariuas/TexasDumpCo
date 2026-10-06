@@ -42,7 +42,7 @@ Email is optional via Resend. This guide takes you from empty accounts to a live
 2. **Developers → API keys**: copy `Secret key` → `STRIPE_SECRET_KEY`, `Publishable key` → `STRIPE_PUBLISHABLE_KEY`.
 3. **Developers → Webhooks → Add endpoint**:
    - URL: `https://<your-site>.netlify.app/api/stripe-webhook`
-   - Events: `checkout.session.completed`, `payment_intent.succeeded`, `charge.refunded`
+   - Events: `checkout.session.completed`, `payment_intent.succeeded`, `charge.refunded`, `invoice.paid`, `invoice.payment_failed`
    - Copy the **Signing secret** → `STRIPE_WEBHOOK_SECRET`
 4. When you're ready for real payments, redo steps 2–3 in **Live mode** and swap the keys.
 

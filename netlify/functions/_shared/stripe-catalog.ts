@@ -3,6 +3,59 @@ import { supabaseAdmin } from "./supabase";
 
 const TAX_CODE = "txcd_20030000"; // general services; owner may change in Stripe dashboard
 
+// Cached Product/Price/Tax Rate ids belong to one Stripe mode: test-mode ids don't exist
+// for live keys. Remember which mode built the cache (settings.stripe_catalog_mode) and,
+// when the secret key's mode differs, drop every cached id so it is re-created on demand.
+const MODE_KEY = "stripe_catalog_mode";
+let _modeChecked: Promise<void> | null = null;
+
+function keyMode(): "live" | "test" {
+  return /^(sk|rk)_live_/.test(process.env.STRIPE_SECRET_KEY ?? "") ? "live" : "test";
+}
+
+async function cachedIdsMissing(): Promise<boolean> {
+  // No recorded mode yet (first run after this code shipped): probe one cached product.
+  const db = supabaseAdmin();
+  const { data: t } = await db.from("dumpster_types").select("stripe_product_id").not("stripe_product_id", "is", null).limit(1).maybeSingle();
+  const { data: f } = t ? { data: null } : await db.from("stripe_catalog_items").select("stripe_product_id").not("stripe_product_id", "is", null).limit(1).maybeSingle();
+  const id = t?.stripe_product_id ?? f?.stripe_product_id;
+  if (!id) return false;
+  try { await stripe().products.retrieve(id); return false; }
+  catch (err) { if ((err as any)?.code === "resource_missing") return true; throw err; }
+}
+
+async function clearCachedIds(): Promise<void> {
+  const db = supabaseAdmin();
+  const results = await Promise.all([
+    db.from("dumpster_types").update({ stripe_product_id: null, stripe_sync_error: null }).not("stripe_product_id", "is", null),
+    db.from("duration_price_tiers").update({ stripe_price_id: null }).not("stripe_price_id", "is", null),
+    db.from("addon_items").update({ stripe_product_id: null, stripe_sync_error: null }).not("stripe_product_id", "is", null),
+    db.from("stripe_catalog_items").delete().neq("key", ""),
+  ]);
+  const failed = results.find((r) => r.error);
+  if (failed) throw new Error(`Could not reset Stripe catalog ids: ${failed.error!.message}`);
+}
+
+async function checkMode(): Promise<void> {
+  const db = supabaseAdmin();
+  const mode = keyMode();
+  const { data: row } = await db.from("settings").select("value").eq("key", MODE_KEY).maybeSingle();
+  const stale = row ? row.value !== mode : await cachedIdsMissing();
+  if (stale) {
+    console.warn(`[stripe-catalog] Stripe mode is now ${mode}; clearing cached catalog ids`);
+    await clearCachedIds();
+  }
+  if (!row || row.value !== mode) {
+    const { error } = await db.from("settings").upsert({ key: MODE_KEY, value: mode });
+    if (error) throw new Error(error.message);
+  }
+}
+
+export function ensureCatalogMode(): Promise<void> {
+  if (!_modeChecked) _modeChecked = checkMode().catch((err) => { _modeChecked = null; throw err; });
+  return _modeChecked;
+}
+
 async function ensureProduct(existingId: string | null, name: string, description: string | null, active: boolean, metadata: Record<string, string>): Promise<string> {
   const s = stripe();
   if (existingId) {
@@ -26,6 +79,7 @@ async function ensurePrice(productId: string, existingPriceId: string | null, am
 }
 
 export async function syncType(typeId: string): Promise<void> {
+  await ensureCatalogMode();
   const db = supabaseAdmin();
   const { data: t } = await db.from("dumpster_types").select("*").eq("id", typeId).maybeSingle();
   if (!t) throw new Error("Type not found");
@@ -46,6 +100,7 @@ export async function syncType(typeId: string): Promise<void> {
 }
 
 export async function syncAddon(addonId: string): Promise<void> {
+  await ensureCatalogMode();
   const db = supabaseAdmin();
   const { data: a } = await db.from("addon_items").select("*").eq("id", addonId).maybeSingle();
   if (!a) throw new Error("Add-on not found");
@@ -60,6 +115,7 @@ export async function syncAddon(addonId: string): Promise<void> {
 
 // Fixed products with no row of their own: deposit, weight overage, distance-fee zones.
 export async function ensureFixedProduct(key: string, name: string): Promise<string> {
+  await ensureCatalogMode();
   const db = supabaseAdmin();
   const { data: row } = await db.from("stripe_catalog_items").select("*").eq("key", key).maybeSingle();
   const productId = await ensureProduct(row?.stripe_product_id ?? null, name, null, true, { source: "fixed", key });
@@ -68,6 +124,7 @@ export async function ensureFixedProduct(key: string, name: string): Promise<str
 }
 
 export async function productIdForType(typeId: string): Promise<string> {
+  await ensureCatalogMode();
   const { data: t } = await supabaseAdmin().from("dumpster_types").select("stripe_product_id").eq("id", typeId).maybeSingle();
   if (t?.stripe_product_id) return t.stripe_product_id;
   await syncType(typeId);
@@ -76,6 +133,7 @@ export async function productIdForType(typeId: string): Promise<string> {
 }
 
 export async function productIdForAddon(addonId: string): Promise<string> {
+  await ensureCatalogMode();
   const { data: a } = await supabaseAdmin().from("addon_items").select("stripe_product_id").eq("id", addonId).maybeSingle();
   if (a?.stripe_product_id) return a.stripe_product_id;
   await syncAddon(addonId);
@@ -104,6 +162,7 @@ export async function syncAll(): Promise<{ ok: number; failed: { id: string; err
 // Tax Rates are immutable, so a new rate is created (and cached) whenever the setting changes.
 export async function ensureTaxRate(bps: number): Promise<string | null> {
   if (!(bps > 0)) return null;
+  await ensureCatalogMode();
   const db = supabaseAdmin();
   const key = `sales_tax_${bps}`;
   const { data: row } = await db.from("stripe_catalog_items").select("stripe_price_id").eq("key", key).maybeSingle();
