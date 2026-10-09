@@ -82,8 +82,6 @@ function setupNav() {
   const nav = $("#admin-nav");
   nav.querySelectorAll("a").forEach((a) =>
     a.addEventListener("click", () => {
-      nav.querySelectorAll("a").forEach((x) => x.classList.remove("active"));
-      a.classList.add("active");
       nav.classList.remove("open");
       render(a.dataset.view);
     }));
@@ -102,10 +100,53 @@ function setupNav() {
 }
 
 const views = {};
+// Menu groups: one menu item, several tabs. [view, tab label, admin only]
+const GROUPS = {
+  bookings: [["bookings", "All bookings"], ["junk", "Junk hauling"]],
+  schedule: [["fleet", "Fleet (where is it?)"], ["availability", "Calendar & days off"]],
+  setup: [["inventory", "Pricing & inventory"], ["settings", "Settings", true], ["promos", "Promo codes", true], ["carousel", "Website carousel", true], ["agreement", "Agreement", true]],
+};
+const PARENT = {};
+for (const [g, tabs] of Object.entries(GROUPS)) for (const [v] of tabs) PARENT[v] = g;
+const lastTab = {};
+let currentSub = "dashboard";
+
 function render(view) {
+  const group = PARENT[view] || (GROUPS[view] ? view : null);
+  if (group) {
+    const tabs = GROUPS[group].filter(([, , adminOnly]) => !adminOnly || me.role === "admin");
+    view = PARENT[view] ? view : (lastTab[group] || tabs[0][0]);
+    lastTab[group] = view;
+  }
+  currentSub = view;
   const main = $("#view");
-  main.innerHTML = `<p class="muted">Loading…</p>`;
-  (views[view] || (() => (main.innerHTML = "Not found")))(main).catch((e) => (main.innerHTML = `<p class="empty">${esc(e.message)}</p>`));
+  const nav = $("#admin-nav");
+  nav.querySelectorAll("a").forEach((a) => a.classList.toggle("active", a.dataset.view === (group || view)));
+  let target = main;
+  if (group) {
+    const tabs = GROUPS[group].filter(([, , adminOnly]) => !adminOnly || me.role === "admin");
+    main.innerHTML = tabs.length > 1 ? `<div class="tabs sub-tabs">${tabs.map(([v, label]) => `<button class="tab ${v === view ? "active" : ""}" data-sub="${v}">${label}</button>`).join("")}</div><div id="subview"></div>` : `<div id="subview"></div>`;
+    main.querySelectorAll("[data-sub]").forEach((b) => b.addEventListener("click", () => render(b.dataset.sub)));
+    target = $("#subview");
+  }
+  target.innerHTML = `<p class="muted">Loading…</p>`;
+  (views[view] || (async () => (target.innerHTML = "Not found")))(target).catch((e) => (target.innerHTML = `<p class="empty">${esc(e.message)}</p>`));
+}
+
+// Long settings pages: each top-level <h3> section becomes a collapsible fold
+// (the first one starts open), so the page is a short list of headings.
+function foldSections(root) {
+  let first = true;
+  for (const h of [...root.children].filter((el) => el.tagName === "H3")) {
+    const fold = document.createElement("details");
+    fold.className = "section-fold";
+    if (first) { fold.open = true; first = false; }
+    const summary = document.createElement("summary");
+    h.replaceWith(fold);
+    summary.appendChild(h);
+    fold.appendChild(summary);
+    while (fold.nextElementSibling && fold.nextElementSibling.tagName !== "H3") fold.appendChild(fold.nextElementSibling);
+  }
 }
 
 // ==================================================================
@@ -687,7 +728,7 @@ async function openInvoiceBuilder(b, charges, onDone) {
   draw();
 }
 
-function currentView() { return $("#admin-nav a.active")?.dataset.view || "dashboard"; }
+function currentView() { return currentSub; }
 
 // ==================================================================
 //  INVENTORY & PRICING
@@ -1263,15 +1304,8 @@ views.settings = async (main) => {
   const { settings: s } = await authFetch("admin-settings");
   const v = (k, d = "") => s[k] ?? d;
   main.innerHTML = `
-    <h2>Settings</h2>
-    ${me.role === "admin" ? `<div class="form"><h3>Google Calendar</h3>
-      <p class="hint">Confirmed bookings appear in green. Requests waiting on you (quote requests, cash bookings to approve, paid bookings with no container free) appear in yellow as "⏳ PENDING" and update when you confirm or cancel them.</p>
-      <div class="actions">
-        <button class="btn btn-ghost btn-sm" id="gc-test">Test Google Calendar</button>
-        <button class="btn btn-ghost btn-sm" id="gc-backfill">Put all upcoming bookings on the calendar</button>
-      </div>
-      <p class="hint" id="gc-msg"></p>
-    </div>` : ""}
+    <p class="hint">Click a section to open it.</p>
+    <h3>Business &amp; booking rules</h3>
     <div class="form">
       <div class="row two">
         <label>Company name<input id="s-name" value="${esc(v("company_name"))}"></label>
@@ -1343,7 +1377,17 @@ views.settings = async (main) => {
       <textarea id="s-sources" rows="6">${esc((v("referral_sources", []) || []).join("\n"))}</textarea>
       <p class="hint">One per line. Shown as a dropdown in online booking and phone-quote entry.</p>
       <div class="actions"><button class="btn btn-ghost btn-sm" id="s-sources-save">Save</button></div>
-    </div>`;
+    </div>
+    ${me.role === "admin" ? `<h3>Google Calendar</h3>
+    <div class="form">
+      <p class="hint">Confirmed bookings appear in green. Requests waiting on you (quote requests, cash bookings to approve, paid bookings with no container free) appear in yellow as "⏳ PENDING" and update when you confirm or cancel them.</p>
+      <div class="actions">
+        <button class="btn btn-ghost btn-sm" id="gc-test">Test Google Calendar</button>
+        <button class="btn btn-ghost btn-sm" id="gc-backfill">Put all upcoming bookings on the calendar</button>
+      </div>
+      <p class="hint" id="gc-msg"></p>
+    </div>` : ""}`;
+  foldSections(main);
 
   if (me.role === "admin") {
     const gcMsg = (ok, text) => { const m = $("#gc-msg"); m.textContent = text; m.style.color = ok ? "#1e7a34" : "#c0392b"; };
