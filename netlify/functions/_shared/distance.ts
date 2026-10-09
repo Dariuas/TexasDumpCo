@@ -1,7 +1,9 @@
-// Delivery mileage measured from the yard (settings.distance_pricing). The free radius
-// is one-way; with round_trip the first 2 x radius miles out and back are free and
-// every mile beyond is billed, rounded up to a whole mile. Past max_oneway_miles the
-// job is priced by phone (quote_only).
+// Delivery mileage measured from the yard (settings.distance_pricing). Everything is in
+// whole miles: the one-way driving distance is rounded to the nearest mile (18.2 -> 18,
+// 18.5 -> 19) and every other number comes from that, so the customer sees
+// 18 mi one way, 36 round trip, 6 billable. The free radius is one-way; with
+// round_trip the first 2 x radius miles out and back are free. Past max_oneway_miles
+// the job is priced by phone (quote_only).
 export interface DistancePricing {
   hub_address: string;
   free_radius_miles: number;
@@ -31,14 +33,12 @@ export function distancePricing(settings: Record<string, unknown>): DistancePric
 }
 
 export function distanceFee(onewayMiles: number, p: DistancePricing): DistanceResult {
-  const oneway = Number.isFinite(onewayMiles) && onewayMiles > 0 ? onewayMiles : 0;
+  const oneway = Number.isFinite(onewayMiles) && onewayMiles > 0 ? Math.round(onewayMiles) : 0;
   const factor = p.round_trip ? 2 : 1;
-  const traveled = oneway * factor;
-  // Tiny epsilon so 30.0000001 miles from floating-point math doesn't bill a mile.
-  const billable = Math.max(0, Math.ceil(traveled - p.free_radius_miles * factor - 1e-6));
+  const billable = Math.max(0, Math.round((oneway - p.free_radius_miles) * factor));
   return {
-    oneway_miles: Math.round(oneway * 10) / 10,
-    round_trip_miles: Math.round(oneway * 2 * 10) / 10,
+    oneway_miles: oneway,
+    round_trip_miles: oneway * 2,
     billable_miles: billable,
     fee_cents: billable * p.per_mile_cents,
     quote_only: oneway > p.max_oneway_miles,

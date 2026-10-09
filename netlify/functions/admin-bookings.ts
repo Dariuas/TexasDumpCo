@@ -36,7 +36,7 @@ export default adminHandler("staff", async (req) => {
   }
 
   let q = db.from("bookings")
-    .select("id,reference,service,customer_name,customer_phone,customer_email,delivery_address,start_date,end_date,status,payment_method,payment_status,amount_total_cents,amount_paid_cents,flags,created_at,dumpster_types(name)")
+    .select("id,reference,service,customer_name,customer_phone,customer_email,delivery_address,start_date,end_date,status,payment_method,payment_status,amount_total_cents,amount_paid_cents,flags,created_at,unit_id,type_id,time_window,dumpster_types(name,uses_inventory,equipment_pool),inventory_units(label)")
     .order("start_date", { ascending: true }).limit(500);
 
   const status = url.searchParams.get("status");

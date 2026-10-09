@@ -11,12 +11,20 @@ test("inside the free radius is free", () => {
   assert.equal(distanceFee(0, p).fee_cents, 0);
   assert.equal(distanceFee(15, p).fee_cents, 0);
 });
-test("round trip miles past 2 x radius are billed, rounded up", () => {
+test("round trip miles past 2 x radius are billed", () => {
   const r = distanceFee(25, p); // 50 round trip, 30 free
   assert.equal(r.round_trip_miles, 50);
   assert.equal(r.billable_miles, 20);
   assert.equal(r.fee_cents, 3700);
-  assert.equal(distanceFee(15.2, p).billable_miles, 1); // 30.4 -> 1 billable mile
+});
+test("miles are whole numbers: one way rounds to the nearest mile", () => {
+  const g = distanceFee(18.2, p); // Georgetown
+  assert.deepEqual([g.oneway_miles, g.round_trip_miles, g.billable_miles, g.fee_cents], [18, 36, 6, 1110]);
+  const up = distanceFee(18.5, p);
+  assert.deepEqual([up.oneway_miles, up.round_trip_miles, up.billable_miles], [19, 38, 8]);
+  assert.equal(distanceFee(15.4, p).billable_miles, 0); // rounds to 15: inside the radius
+  assert.equal(distanceFee(35.4, p).quote_only, false); // rounds to 35: still online
+  assert.equal(distanceFee(35.6, p).quote_only, true);  // rounds to 36: call for quote
 });
 test("past the max one-way distance it becomes a phone quote", () => {
   assert.equal(distanceFee(35, p).quote_only, false);

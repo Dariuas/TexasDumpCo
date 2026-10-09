@@ -1275,13 +1275,13 @@ views.settings = async (main) => {
     </div>
 
     <h3>Delivery distance (from the yard)</h3>
-    <p class="hint">Driving miles from the yard to the job address are measured with Google Maps at booking. Inside the free radius is included; past it, every mile is billed at the per-mile rate (round trip counts the miles out and back). Past the online limit, the customer is asked to call for a quote.</p>
+    <p class="hint">Driving miles from the yard to the job address are measured with Google Maps at booking and rounded to the nearest whole mile. Inside the free radius is included; past it, every mile is billed at the per-mile rate (round trip counts the miles out and back). Past the online limit, the customer is asked to call for a quote.</p>
     <div class="form">
       <label>Yard address<input id="dp-hub" value="${esc(dp().hub_address || "1725 County Road 269, Leander, TX 78641")}"></label>
       <div class="row three">
-        <label>Free radius (miles, one way)<input id="dp-free" type="number" step="0.1" value="${esc(dp().free_radius_miles ?? 15)}"></label>
+        <label>Free radius (miles, one way)<input id="dp-free" type="number" step="1" min="0" value="${esc(dp().free_radius_miles ?? 15)}"></label>
         <label>Per mile ($)<input id="dp-rate" type="number" step="0.01" value="${esc(((dp().per_mile_cents ?? 185) / 100).toFixed(2))}"></label>
-        <label>Online limit (miles, one way)<input id="dp-max" type="number" step="0.1" value="${esc(dp().max_oneway_miles ?? 35)}"></label>
+        <label>Online limit (miles, one way)<input id="dp-max" type="number" step="1" min="0" value="${esc(dp().max_oneway_miles ?? 35)}"></label>
       </div>
       <label>Bill miles<select id="dp-rt"><option value="true" ${dp().round_trip !== false ? "selected" : ""}>Round trip (out and back)</option><option value="false" ${dp().round_trip === false ? "selected" : ""}>One way</option></select></label>
       <div class="row two">
@@ -1786,6 +1786,67 @@ views.carousel = async (main) => {
     await post("admin-slides", { action: "create", title: "New promo", badge: "Limited time", active: false });
     toast("Slide added (hidden until you turn it on)"); render("carousel");
   });
+};
+
+// ==================================================================
+//  FLEET: where every container is right now
+// ==================================================================
+// "Out" = its booking is marked delivered, or today falls inside a confirmed/scheduled
+// booking (dropped off but not marked yet). Picked up / completed = back in the yard.
+views.fleet = async (main) => {
+  const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
+  const [{ units, types }, { bookings: upcoming }, { bookings: delivered }] = await Promise.all([
+    authFetch("admin-inventory"),
+    authFetch(`admin-bookings?range_from=${addDays(today, -1)}&range_to=${addDays(today, 60)}`),
+    authFetch("admin-bookings?status=delivered"),
+  ]);
+  const byId = new Map();
+  for (const b of [...upcoming, ...delivered]) byId.set(b.id, b);
+  const bookings = [...byId.values()].filter((b) => b.status !== "canceled");
+  const typeName = (id) => types.find((t) => t.id === id)?.name || "";
+  const mapLink = (a) => `<a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(a || "")}" target="_blank" rel="noopener">${esc(a || "—")}</a>`;
+  const active = new Set(["confirmed", "scheduled", "delivered"]);
+
+  const rows = units.map((u) => {
+    const mine = bookings.filter((b) => b.unit_id === u.id).sort((a, b) => a.start_date.localeCompare(b.start_date));
+    const out = mine.find((b) => b.status === "delivered") || mine.find((b) => active.has(b.status) && b.start_date <= today && b.end_date >= today);
+    const next = mine.find((b) => active.has(b.status) && b.start_date > today && b !== out);
+    let state, cls;
+    if (u.status === "maintenance" || u.status === "out_of_service") { state = u.status.replace(/_/g, " "); cls = "canceled"; }
+    else if (out && out.end_date < today) { state = `OUT — pickup overdue (was due ${out.end_date})`; cls = "canceled"; }
+    else if (out && out.end_date === today) { state = "OUT — pick up today"; cls = "pending"; }
+    else if (out && out.status !== "delivered") { state = "OUT? — not marked delivered"; cls = "pending"; }
+    else if (out) { state = `OUT until ${out.end_date}`; cls = "pending"; }
+    else if (next && next.start_date === addDays(today, 0)) { state = "In yard — goes out today"; cls = "confirmed"; }
+    else { state = "In yard"; cls = "confirmed"; }
+    return { u, out, next, state, cls };
+  });
+  const outCount = rows.filter((r) => r.out).length;
+  const unassigned = bookings.filter((b) => !b.unit_id && b.dumpster_types?.uses_inventory !== false && b.service === "dumpster"
+    && active.has(b.status) && b.end_date >= today);
+
+  main.innerHTML = `
+    <h2>Fleet</h2>
+    <div class="kpi-row">
+      <div class="kpi"><div class="n">${units.length}</div><div class="l">Containers</div></div>
+      <div class="kpi"><div class="n">${outCount}</div><div class="l">Out at jobs</div></div>
+      <div class="kpi"><div class="n">${rows.filter((r) => r.state.startsWith("In yard")).length}</div><div class="l">In the yard</div></div>
+      <div class="kpi"><div class="n">${rows.filter((r) => r.state.includes("overdue") || r.state.includes("today")).length}</div><div class="l">Pickups due</div></div>
+    </div>
+    <p class="hint">Click a row to open its booking. In the booking, set the status to <strong>delivered</strong> when it's dropped off and <strong>picked_up</strong> when it's back, so this page stays accurate.</p>
+    <div class="table-wrap"><table class="table"><thead><tr><th>Container</th><th>Where</th><th>Customer / address</th><th>Dates</th><th>Next booking</th></tr></thead><tbody>
+      ${rows.map(({ u, out, next, state, cls }) => `<tr ${out ? `data-id="${out.id}"` : next ? `data-id="${next.id}"` : 'style="cursor:default"'}>
+        <td><strong>${esc(u.label)}</strong><br><span class="muted">${esc(typeName(u.type_id))}</span></td>
+        <td><span class="badge b-${cls}">${esc(state)}</span></td>
+        <td>${out ? `${esc(out.customer_name)} · ${esc(out.customer_phone)}<br>${mapLink(out.delivery_address)}` : '<span class="muted">—</span>'}</td>
+        <td>${out ? `${out.start_date} → ${out.end_date}<br><span class="muted">${esc(out.reference)}</span>` : '<span class="muted">—</span>'}</td>
+        <td>${next ? `${next.start_date} · ${esc(next.customer_name)}<br><span class="muted">${esc(next.delivery_address)}</span>` : '<span class="muted">none in next 60 days</span>'}</td>
+      </tr>`).join("") || '<tr><td colspan="5" class="muted">No containers set up. Add them under Inventory &amp; Pricing.</td></tr>'}
+    </tbody></table></div>
+    ${unassigned.length ? `<h3>⚠ Upcoming dumpster bookings with no container assigned (${unassigned.length})</h3>
+      <p class="hint">Usually means every container was already booked when it was confirmed. Open each one to sort it out.</p>
+      ${bookingTable(unassigned)}` : ""}`;
+  wireRows(main);
 };
 
 // ==================================================================
