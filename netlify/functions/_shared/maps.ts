@@ -31,8 +31,10 @@ export async function driveMiles(origin: string, destination: string): Promise<n
     if (res.status === 400 || res.status === 404) throw new AddressNotFound("We couldn't find that address.");
     throw new Error(`Google Maps error: ${msg}`);
   }
-  const meters = data?.routes?.[0]?.distanceMeters;
-  if (typeof meters !== "number") throw new AddressNotFound("We couldn't find a driving route to that address.");
+  const route = data?.routes?.[0];
+  if (!route) throw new AddressNotFound("We couldn't find a driving route to that address.");
+  // A route of 0 m (job at the yard) comes back with distanceMeters omitted.
+  const meters = typeof route.distanceMeters === "number" ? route.distanceMeters : 0;
   const miles = meters / METERS_PER_MILE;
   if (cache.size > 500) cache.clear();
   cache.set(cacheKey, miles);

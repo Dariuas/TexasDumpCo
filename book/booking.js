@@ -572,7 +572,7 @@ function distanceLine(q) {
   }
   if (state.distanceMode === "unverified" || !state.distance) return `<div class="line"><span>Delivery mileage</span><span>We'll confirm</span></div>`;
   const d = state.distance;
-  return `<div class="line"><span>Mileage (${d.round_trip_miles} mi round trip)</span><span>${d.quote_only ? "—" : q.distanceFee ? money(q.distanceFee) : "Included"}</span></div>`;
+  return `<div class="line"><span>Mileage (${d.round_trip_miles} mi round trip)</span><span>${q.distanceFee ? money(q.distanceFee) + (d.quote_only ? " est." : "") : "Included"}</span></div>`;
 }
 
 async function applyPromo() {
