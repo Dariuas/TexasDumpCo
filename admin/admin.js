@@ -487,7 +487,7 @@ async function openBooking(id) {
         if (!r.emailed) prompt("Pay link (copy and text it to the customer):", r.url);
         refresh();
       } else if (act === "add-charge") {
-        const kind = $("#ac-kind").value, desc = $("#ac-desc").value.trim();
+        const kind = $("#ac-kind").value === "addon" ? "custom" : $("#ac-kind").value, desc = $("#ac-desc").value.trim();
         const qty = parseFloat($("#ac-qty").value), unit = cents($("#ac-unit").value);
         if (!desc || !(qty > 0) || !(unit > 0)) return alert("Enter a description, quantity and amount.");
         await post("admin-booking-charges", { booking_id: id, action: "add", lines: [{ kind, description: desc, quantity: qty, unit_cents: unit, taxable: $("#ac-taxable").checked }] });
@@ -563,13 +563,19 @@ function publicCfg() {
   publicCfgPromise ??= fetch("/api/public-config").then((r) => r.json()).catch(() => ({}));
   return publicCfgPromise;
 }
+// Active add-on items (Inventory & Pricing), fresh each time so new ones show up at once.
+async function activeAddons() {
+  try { return (await fetch("/api/catalog").then((r) => r.json())).addons || []; } catch { return []; }
+}
 
 // "+ Add charge" presets: fee schedule items, per-mile, per-day and per-ton rates.
 async function wireAddCharge(b) {
-  const cfg = await publicCfg();
+  const [cfg, addons] = await Promise.all([publicCfg(), activeAddons()]);
   const t = b.dumpster_types || {};
   const fees = cfg.feeSchedule || [];
   $("#ac-fee").innerHTML = fees.map((f, i) => `<option value="${i}">${esc(f.label)} (${f.from ? "from " : ""}${money(f.amount_cents)}${f.unit ? " / " + esc(f.unit) : ""})</option>`).join("") || "<option value=''>No fees in the fee schedule</option>";
+  $("#ac-kind").insertAdjacentHTML("beforeend", '<option value="addon">Add-on item</option>');
+  $("#ac-fee-wrap").insertAdjacentHTML("afterend", `<label id="ac-addon-wrap" hidden>Add-on<select id="ac-addon">${addons.map((a, i) => `<option value="${i}">${esc(a.name)} (${money(a.price_cents)})</option>`).join("") || "<option value=''>No add-on items</option>"}</select></label>`);
   const set = (desc, qtyLabel, unitCents) => {
     $("#ac-desc").value = desc; $("#ac-qty-label").textContent = qtyLabel;
     $("#ac-qty").value = 1; $("#ac-unit").value = unitCents != null ? (unitCents / 100).toFixed(2) : "";
@@ -577,7 +583,9 @@ async function wireAddCharge(b) {
   const apply = () => {
     const kind = $("#ac-kind").value;
     $("#ac-fee-wrap").hidden = kind !== "fee";
-    if (kind === "fee") { const f = fees[+$("#ac-fee").value]; set(f ? f.label : "", f?.unit ? `Quantity (${f.unit})` : "Quantity", f?.amount_cents); }
+    $("#ac-addon-wrap").hidden = kind !== "addon";
+    if (kind === "addon") { const a = addons[+$("#ac-addon").value]; set(a ? a.name : "", "Quantity", a?.price_cents); }
+    else if (kind === "fee") { const f = fees[+$("#ac-fee").value]; set(f ? f.label : "", f?.unit ? `Quantity (${f.unit})` : "Quantity", f?.amount_cents); }
     else if (kind === "mileage") set("Extra mileage", "Extra miles", cfg.distancePricing?.per_mile_cents ?? 185);
     else if (kind === "extra_days") set("Extra rental days", "Days", t.extra_day_fee_cents ?? null);
     else if (kind === "weight") set(`Weight overage${t.weight_limit_tons != null ? ` (limit ${t.weight_limit_tons} tons)` : ""}`, "Tons over the limit", t.overage_fee_cents ?? null);
@@ -585,6 +593,7 @@ async function wireAddCharge(b) {
   };
   $("#ac-kind").addEventListener("change", apply);
   $("#ac-fee").addEventListener("change", apply);
+  $("#ac-addon").addEventListener("change", apply);
   apply();
 }
 
@@ -592,7 +601,7 @@ async function wireAddCharge(b) {
 // pending request (reserves a container) and emails the itemized price; the pay link
 // is sent next.
 async function openInvoiceBuilder(b, charges, onDone) {
-  const cfg = await publicCfg();
+  const [cfg, addons] = await Promise.all([publicCfg(), activeAddons()]);
   const taxBps = b.tax_exempt ? 0 : (cfg.taxRateBps || 0);
   const t = b.dumpster_types || {};
   const typeName = t.name || "Booking";
@@ -617,6 +626,7 @@ async function openInvoiceBuilder(b, charges, onDone) {
     <div class="actions">
       <button class="btn btn-ghost btn-sm" id="ib-add" type="button">+ Line</button>
       ${fees.length ? `<select id="ib-fee"><option value="">+ Fee from schedule…</option>${fees.map((f, i) => `<option value="${i}">${esc(f.label)} (${money(f.amount_cents)})</option>`).join("")}</select>` : ""}
+      ${addons.length ? `<select id="ib-addon"><option value="">+ Add-on item…</option>${addons.map((a, i) => `<option value="${i}">${esc(a.name)} (${money(a.price_cents)})</option>`).join("")}</select>` : ""}
     </div>
     <div class="totals" id="ib-totals"></div>
     <div class="actions"><button class="btn btn-primary btn-sm" id="ib-save">${(b.flags || []).includes("quote_requested") ? "Save &amp; confirm booking" : "Save invoice"}</button>
@@ -654,6 +664,10 @@ async function openInvoiceBuilder(b, charges, onDone) {
   $("#ib-fee")?.addEventListener("change", (e) => {
     const f = fees[+e.target.value]; if (!f) return;
     read(); lines.push({ kind: "fee", description: f.label, quantity: 1, unit_cents: f.amount_cents, taxable: !b.tax_exempt }); e.target.value = ""; draw();
+  });
+  $("#ib-addon")?.addEventListener("change", (e) => {
+    const a = addons[+e.target.value]; if (!a) return;
+    read(); lines.push({ kind: "custom", description: a.name, quantity: 1, unit_cents: a.price_cents, taxable: !b.tax_exempt }); e.target.value = ""; draw();
   });
   $("#ib-close").addEventListener("click", onDone);
   $("#ib-cancel").addEventListener("click", onDone);
@@ -700,7 +714,7 @@ views.inventory = async (main) => {
     <p class="hint">Types sharing the same "Equipment pool" label share physical containers for availability (e.g. Standard + Clean Green Waste roll-offs).</p>
     <div id="units"></div></details>
     <details class="section-fold" open><summary><h3>Add-on items</h3></summary>
-    <p class="hint">Specialty items shown as checkboxes on junk-hauling bookings (mattress, appliance, access fees...).</p>
+    <p class="hint">Customers see these as checkboxes when they book <strong>Junk Hauling</strong> online (mattress, appliance, tires...). Staff can also pick them in a booking's <strong>+ Add charge</strong> and in the invoice builder. Fees like stairs or dry runs that customers should see on the website belong in Settings → Fee schedule.</p>
     <div id="addons"></div></details>`;
 
   const typeName = (id) => types.find((t) => t.id === id)?.name || "?";
@@ -887,23 +901,30 @@ views.inventory = async (main) => {
         <label>Price ($)<input id="na-price" type="number" step="0.01"></label>
       </div><div class="actions"><button class="btn btn-primary btn-sm" id="na-add">+ Add add-on</button></div></div>` : "");
     if (!isAdmin) return;
-    $("#addons").querySelectorAll(".a-save").forEach((b) => b.addEventListener("click", async () => {
+    const synced = (r, msg) => toast(r.stripe_sync_error ? `${msg} (Stripe sync failed: ${r.stripe_sync_error})` : msg);
+    $("#addons").querySelectorAll(".a-save").forEach((b) => guarded(b, async () => {
       const id = b.dataset.id;
-      await post("admin-inventory", {
-        action: "update_addon", id,
-        name: $(`.a-name[data-id="${id}"]`).value, category: $(`.a-cat[data-id="${id}"]`).value,
-        price_cents: cents($(`.a-price[data-id="${id}"]`).value), active: $(`.a-active[data-id="${id}"]`).value === "true",
-      });
-      toast("Add-on saved");
+      try {
+        const r = await post("admin-inventory", {
+          action: "update_addon", id,
+          name: $(`.a-name[data-id="${id}"]`).value, category: $(`.a-cat[data-id="${id}"]`).value,
+          price_cents: cents($(`.a-price[data-id="${id}"]`).value), active: $(`.a-active[data-id="${id}"]`).value === "true",
+        });
+        synced(r, "Add-on saved"); render("inventory");
+      } catch (e) { alert(`Could not save: ${e.message}`); }
     }));
-    $("#addons").querySelectorAll(".a-del").forEach((b) => b.addEventListener("click", async () => {
+    $("#addons").querySelectorAll(".a-del").forEach((b) => guarded(b, async () => {
       if (!confirm("Delete this add-on?")) return;
-      await post("admin-inventory", { action: "delete_addon", id: b.dataset.id }); render("inventory");
+      try { await post("admin-inventory", { action: "delete_addon", id: b.dataset.id }); toast("Add-on deleted"); render("inventory"); }
+      catch (e) { alert(`Could not delete: ${e.message}`); }
     }));
-    $("#na-add").addEventListener("click", async () => {
+    guarded($("#na-add"), async () => {
       const name = $("#na-name").value.trim(); if (!name || !$("#na-price").value) return alert("Name and price required.");
-      await post("admin-inventory", { action: "create_addon", name, category: $("#na-cat").value, price_cents: cents($("#na-price").value) });
-      render("inventory");
+      try {
+        const maxSort = Math.max(0, ...addons.map((a) => a.sort_order || 0));
+        const r = await post("admin-inventory", { action: "create_addon", name, category: $("#na-cat").value, price_cents: cents($("#na-price").value), sort_order: maxSort + 1 });
+        synced(r, `Added “${name}”`); render("inventory");
+      } catch (e) { alert(`Could not add: ${e.message}`); }
     });
   };
   renderAddons();
