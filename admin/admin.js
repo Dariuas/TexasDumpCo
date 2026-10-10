@@ -21,6 +21,10 @@ function guarded(btn, fn) {
     try { await fn(e); } finally { delete btn.dataset.busy; btn.disabled = false; }
   });
 }
+// guarded() plus error reporting: any failure shows the exact message instead of failing silently.
+function action(btn, fn) {
+  if (btn) guarded(btn, async (e) => { try { await fn(e); } catch (err) { alert(`Could not save: ${err.message}`); } });
+}
 
 let sb, session, me = { role: "customer", email: "" };
 
@@ -60,7 +64,7 @@ async function onSignedIn() {
   $("#admin-user").textContent = `${me.email} · ${me.role}`;
   document.querySelectorAll("[data-admin]").forEach((a) => { if (me.role !== "admin") a.style.display = "none"; });
   setupNav();
-  render("dashboard");
+  render(location.hash.slice(1) || "dashboard");
   refreshQueueBadge();
 }
 
@@ -78,15 +82,32 @@ function post(path, body) {
 }
 
 // ---------- nav ----------
+// Each page has its own address (#bookings, #fees...), so the browser Back button,
+// bookmarks and a page reload all land on the same page.
+function go(view) {
+  if (location.hash.slice(1) === view) render(view);
+  else location.hash = view;
+}
 function setupNav() {
   const nav = $("#admin-nav");
-  nav.querySelectorAll("a").forEach((a) =>
-    a.addEventListener("click", () => {
+  nav.querySelectorAll("a").forEach((a) => {
+    a.href = `#${a.dataset.view}`;
+    a.addEventListener("click", (e) => {
+      e.preventDefault();
       nav.classList.remove("open");
-      render(a.dataset.view);
-    }));
+      go(a.dataset.view);
+    });
+  });
+  window.addEventListener("hashchange", () => render(location.hash.slice(1) || "dashboard"));
+  window.addEventListener("beforeunload", (e) => { if (unsaved) { e.preventDefault(); e.returnValue = ""; } });
   $("#menu-btn").addEventListener("click", () => nav.classList.toggle("open"));
   $("#refresh").addEventListener("click", () => render(currentView()));
+  $("#global-q").addEventListener("keydown", (e) => {
+    if (e.key !== "Enter" || !e.target.value.trim()) return;
+    presetFilter = { q: e.target.value.trim() };
+    e.target.value = "";
+    go("bookings");
+  });
   $("#logout").addEventListener("click", async () => { await sb.auth.signOut(); location.reload(); });
   $("#chg-pass").addEventListener("click", async () => {
     const p1 = prompt("New password (min 8 characters):");
@@ -104,29 +125,42 @@ const views = {};
 const GROUPS = {
   bookings: [["bookings", "All bookings"], ["junk", "Junk hauling"]],
   schedule: [["fleet", "Fleet (where is it?)"], ["availability", "Calendar & days off"]],
-  setup: [["inventory", "Pricing & inventory"], ["settings", "Settings", true], ["promos", "Promo codes", true], ["carousel", "Website carousel", true], ["agreement", "Agreement", true]],
+  setup: [["inventory", "Prices & add-ons"], ["fees", "Fee schedule", true], ["settings", "Business settings", true], ["promos", "Promo codes", true], ["carousel", "Website carousel", true], ["agreement", "Agreement", true]],
 };
 const PARENT = {};
 for (const [g, tabs] of Object.entries(GROUPS)) for (const [v] of tabs) PARENT[v] = g;
 const lastTab = {};
 let currentSub = "dashboard";
+// Set by an editor with unsaved changes (e.g. the fee schedule); leaving the page asks first.
+let unsaved = false;
+// One-shot filters for the bookings list, set by dashboard tiles and the header search.
+let presetFilter = null;
 
 function render(view) {
+  if (!views[view] && !GROUPS[view]) view = "dashboard";
+  if (unsaved && view !== currentSub) {
+    if (!confirm("You have unsaved changes on this page. Leave without saving?")) {
+      history.replaceState(null, "", `#${currentSub}`);
+      return;
+    }
+  }
+  unsaved = false;
   const group = PARENT[view] || (GROUPS[view] ? view : null);
+  let tabs = [];
   if (group) {
-    const tabs = GROUPS[group].filter(([, , adminOnly]) => !adminOnly || me.role === "admin");
-    view = PARENT[view] ? view : (lastTab[group] || tabs[0][0]);
+    tabs = GROUPS[group].filter(([, , adminOnly]) => !adminOnly || me.role === "admin");
+    if (!PARENT[view] || !tabs.some(([v]) => v === view)) view = tabs.some(([v]) => v === lastTab[group]) ? lastTab[group] : tabs[0][0];
     lastTab[group] = view;
   }
   currentSub = view;
+  if (location.hash.slice(1) !== view) history.replaceState(null, "", `#${view}`);
   const main = $("#view");
   const nav = $("#admin-nav");
   nav.querySelectorAll("a").forEach((a) => a.classList.toggle("active", a.dataset.view === (group || view)));
   let target = main;
   if (group) {
-    const tabs = GROUPS[group].filter(([, , adminOnly]) => !adminOnly || me.role === "admin");
     main.innerHTML = tabs.length > 1 ? `<div class="tabs sub-tabs">${tabs.map(([v, label]) => `<button class="tab ${v === view ? "active" : ""}" data-sub="${v}">${label}</button>`).join("")}</div><div id="subview"></div>` : `<div id="subview"></div>`;
-    main.querySelectorAll("[data-sub]").forEach((b) => b.addEventListener("click", () => render(b.dataset.sub)));
+    main.querySelectorAll("[data-sub]").forEach((b) => b.addEventListener("click", () => go(b.dataset.sub)));
     target = $("#subview");
   }
   target.innerHTML = `<p class="muted">Loading…</p>`;
@@ -165,11 +199,17 @@ views.dashboard = async (main) => {
   main.innerHTML = `
     <h2>Dashboard</h2>
     <div class="kpi-row">
-      <div class="kpi"><div class="n">${todays.length}</div><div class="l">Jobs today</div></div>
-      <div class="kpi"><div class="n">${upcoming.length}</div><div class="l">Upcoming</div></div>
-      <div class="kpi"><div class="n">${cashPending.length}</div><div class="l">Cash to approve</div></div>
-      <div class="kpi"><div class="n">${quoteRequests.length}</div><div class="l">Quotes to price</div></div>
-      <div class="kpi"><div class="n">${newWebQuotes}</div><div class="l">New web quote requests</div></div>
+      <button class="kpi kpi-link" data-go="today"><div class="n">${todays.length}</div><div class="l">Jobs today</div></button>
+      <button class="kpi kpi-link" data-go="upcoming"><div class="n">${upcoming.length}</div><div class="l">Upcoming</div></button>
+      <button class="kpi kpi-link${cashPending.length ? " kpi-alert" : ""}" data-go="cash"><div class="n">${cashPending.length}</div><div class="l">Cash to approve</div></button>
+      <button class="kpi kpi-link${quoteRequests.length ? " kpi-alert" : ""}" data-go="price"><div class="n">${quoteRequests.length}</div><div class="l">Quotes to price</div></button>
+      <button class="kpi kpi-link${newWebQuotes ? " kpi-alert" : ""}" data-go="quotes"><div class="n">${newWebQuotes}</div><div class="l">New web quote requests</div></button>
+    </div>
+    <div class="quick-links">
+      <button class="btn btn-primary btn-sm" data-go="new">+ New booking (phone quote)</button>
+      <button class="btn btn-ghost btn-sm" data-go="fleet">Where are the containers?</button>
+      <button class="btn btn-ghost btn-sm" data-go="availability">Calendar &amp; days off</button>
+      ${me.role === "admin" ? '<button class="btn btn-ghost btn-sm" data-go="fees">Edit fee schedule</button>' : ""}
     </div>
     ${quoteRequests.length ? `<h3>📞 Needs a phone quote (cleanout / heavy material / yard waste / 35+ mi)</h3>${bookingTable(quoteRequests)}` : ""}
     ${cashPending.length ? `<h3>⚠ Cash bookings awaiting approval</h3>${bookingTable(cashPending)}` : ""}
@@ -177,6 +217,16 @@ views.dashboard = async (main) => {
     ${upcoming.length ? bookingTable(upcoming.slice(0, 15)) : `<div class="empty">No upcoming bookings.</div>`}
     <p class="hint">Collected to date: ${money(revenue)}</p>`;
   wireRows(main);
+  const TILE = {
+    today: { from: today, to: today }, upcoming: { from: today },
+    cash: { pay: "cash_pending" }, price: { status: "pending" },
+  };
+  main.querySelectorAll("[data-go]").forEach((b) => b.addEventListener("click", () => {
+    const k = b.dataset.go;
+    if (TILE[k]) { presetFilter = TILE[k]; go("bookings"); }
+    else if (k === "new") openNewBookingForm(null, () => render("dashboard"));
+    else go(k);
+  }));
 };
 
 // ==================================================================
@@ -204,6 +254,14 @@ function bookingListView(serviceFilter) {
       <div id="list"><p class="muted">Loading…</p></div>`;
 
     $("#f-new").addEventListener("click", () => openNewBookingForm(serviceFilter, load));
+    if (presetFilter) {
+      const p = presetFilter; presetFilter = null;
+      if (p.q) $("#f-q").value = p.q;
+      if (p.status) $("#f-status").value = p.status;
+      if (p.pay) $("#f-pay").value = p.pay;
+      if (p.from) $("#f-from").value = p.from;
+      if (p.to) $("#f-to").value = p.to;
+    }
 
     const load = async () => {
       const p = new URLSearchParams();
@@ -614,7 +672,7 @@ async function wireAddCharge(b) {
   const [cfg, addons] = await Promise.all([publicCfg(), activeAddons()]);
   const t = b.dumpster_types || {};
   const fees = cfg.feeSchedule || [];
-  $("#ac-fee").innerHTML = fees.map((f, i) => `<option value="${i}">${esc(f.label)} (${f.from ? "from " : ""}${money(f.amount_cents)}${f.unit ? " / " + esc(f.unit) : ""})</option>`).join("") || "<option value=''>No fees in the fee schedule</option>";
+  $("#ac-fee").innerHTML = fees.map((f, i) => `<option value="${i}">${esc(f.label)} (${esc(feePriceText(f))})</option>`).join("") || "<option value=''>No fees in the fee schedule</option>";
   $("#ac-kind").insertAdjacentHTML("beforeend", '<option value="addon">Add-on item</option>');
   $("#ac-fee-wrap").insertAdjacentHTML("afterend", `<label id="ac-addon-wrap" hidden>Add-on<select id="ac-addon">${addons.map((a, i) => `<option value="${i}">${esc(a.name)} (${money(a.price_cents)})</option>`).join("") || "<option value=''>No add-on items</option>"}</select></label>`);
   const set = (desc, qtyLabel, unitCents) => {
@@ -666,7 +724,7 @@ async function openInvoiceBuilder(b, charges, onDone) {
     <div id="ib-lines"></div>
     <div class="actions">
       <button class="btn btn-ghost btn-sm" id="ib-add" type="button">+ Line</button>
-      ${fees.length ? `<select id="ib-fee"><option value="">+ Fee from schedule…</option>${fees.map((f, i) => `<option value="${i}">${esc(f.label)} (${money(f.amount_cents)})</option>`).join("")}</select>` : ""}
+      ${fees.length ? `<select id="ib-fee"><option value="">+ Fee from schedule…</option>${fees.map((f, i) => `<option value="${i}">${esc(f.label)} (${esc(feePriceText(f))})</option>`).join("")}</select>` : ""}
       ${addons.length ? `<select id="ib-addon"><option value="">+ Add-on item…</option>${addons.map((a, i) => `<option value="${i}">${esc(a.name)} (${money(a.price_cents)})</option>`).join("")}</select>` : ""}
     </div>
     <div class="totals" id="ib-totals"></div>
@@ -704,7 +762,7 @@ async function openInvoiceBuilder(b, charges, onDone) {
   $("#ib-add").addEventListener("click", () => { read(); lines.push({ kind: "custom", description: "", quantity: 1, unit_cents: 0, taxable: !b.tax_exempt }); draw(); });
   $("#ib-fee")?.addEventListener("change", (e) => {
     const f = fees[+e.target.value]; if (!f) return;
-    read(); lines.push({ kind: "fee", description: f.label, quantity: 1, unit_cents: f.amount_cents, taxable: !b.tax_exempt }); e.target.value = ""; draw();
+    read(); lines.push({ kind: "fee", description: f.label, quantity: 1, unit_cents: f.amount_cents ?? 0, taxable: !b.tax_exempt }); e.target.value = ""; draw();
   });
   $("#ib-addon")?.addEventListener("change", (e) => {
     const a = addons[+e.target.value]; if (!a) return;
@@ -743,14 +801,27 @@ views.inventory = async (main) => {
   const { types, units, tiers, addons } = await authFetch("admin-inventory");
   const isAdmin = me.role === "admin";
   main.innerHTML = `
-    <h2>Inventory &amp; Pricing</h2>
-    <p class="hint">Matches the TXD Master Pricing &amp; Phone Call Guide. Contractor rates and judgment fees are reference-only — apply them via <strong>Bookings → + New Booking (Phone Quote)</strong>, see Settings.</p>
-    <h3>Weight limits &amp; overage ${isAdmin ? "" : "<span class='hint'>(read-only — admin edits)</span>"}</h3>
-    <p class="hint">Weight included with each dumpster rental. When you record a scale weight on a booking, anything over the limit is billed at the per-ton rate (plus tax). Leave the limit blank for no overage.</p>
-    <div id="weights"></div>
-    <h3>Types &amp; pricing ${isAdmin ? "" : "<span class='hint'>(read-only — admin edits pricing)</span>"}</h3>
+    <h2>Prices &amp; Add-ons</h2>
+    <p class="hint">Click a service to open and edit its prices. Fees like stairs or dry runs are on the <a href="#fees">Fee schedule</a> tab; contractor prices are in <a href="#settings">Business settings</a>.</p>
+    <h3>Services &amp; prices ${isAdmin ? "" : "<span class='hint'>(read-only — admin edits pricing)</span>"}</h3>
     <div id="types"></div>
-    ${isAdmin ? `<button class="btn btn-ghost btn-sm" id="add-type">+ Add type</button> <button class="btn btn-ghost btn-sm" id="sync-stripe">Sync all to Stripe</button>` : ""}
+    ${isAdmin ? `<details class="form add-type"><summary class="btn btn-ghost btn-sm">+ Add a service</summary>
+      <div class="row three" style="margin-top:12px">
+        <label>Name<input id="nt-name" placeholder="e.g. 20 Yard Roll-Off"></label>
+        <label>Service<select id="nt-service"><option value="dumpster">Dumpster rental</option><option value="junk">Junk hauling / crew job</option></select></label>
+        <label>Pricing<select id="nt-mode"><option value="flat">One fixed price</option><option value="duration_tiers">By rental length (day tiers)</option><option value="quote_only">Quote only (“starting at”)</option></select></label>
+      </div>
+      <div class="row two">
+        <label>Price ($)<input id="nt-price" type="number" step="0.01" min="0" placeholder="0.00"></label>
+        <label>Category (grouping key)<input id="nt-cat" value="general" placeholder="e.g. roll_off_standard, junk_household"></label>
+      </div>
+      <p class="hint">New services start <strong>hidden</strong> so you can finish setting them up. Set Active to Yes when ready.</p>
+      <div class="actions"><button class="btn btn-primary btn-sm" id="add-type" type="button">Create service</button></div>
+    </details>
+    <button class="btn btn-ghost btn-sm" id="sync-stripe">Sync all to Stripe</button>` : ""}
+    <details class="section-fold"><summary><h3>Weight limits &amp; overage ${isAdmin ? "" : "<span class='hint'>(read-only — admin edits)</span>"}</h3></summary>
+    <p class="hint">Weight included with each dumpster rental. When you record a scale weight on a booking, anything over the limit is billed at the per-ton rate (plus tax). Leave the limit blank for no overage.</p>
+    <div id="weights"></div></details>
     <details class="section-fold"><summary><h3>Units (physical containers)</h3></summary>
     <p class="hint">Types sharing the same "Equipment pool" label share physical containers for availability (e.g. Standard + Clean Green Waste roll-offs).</p>
     <div id="units"></div></details>
@@ -831,7 +902,7 @@ views.inventory = async (main) => {
           </div><div class="actions"><button class="btn btn-ghost btn-sm" data-add-tier="${t.id}">+ Add / update tier</button></div>` : ""}` : ""}
       </details>`).join("");
 
-    if (isAdmin) $("#types").querySelectorAll("[data-save]").forEach((btn) => btn.addEventListener("click", async () => {
+    if (isAdmin) $("#types").querySelectorAll("[data-save]").forEach((btn) => action(btn, async () => {
       const box = btn.closest(".form");
       const saved = await post("admin-inventory", {
         action: "update_type", id: box.dataset.id,
@@ -848,13 +919,14 @@ views.inventory = async (main) => {
       toast(saved.stripe_sync_error ? `Saved, but Stripe sync failed: ${saved.stripe_sync_error}` : "Type saved");
       sessionStorage.setItem("openType", box.dataset.id); render("inventory");
     }));
-    if (isAdmin) $("#types").querySelectorAll("[data-add-tier]").forEach((btn) => btn.addEventListener("click", async () => {
+    if (isAdmin) $("#types").querySelectorAll("[data-add-tier]").forEach((btn) => action(btn, async () => {
       const typeId = btn.dataset.addTier;
       const box = btn.closest(".form");
       const days = +box.querySelector(".nt-days").value, price = box.querySelector(".nt-price").value, label = box.querySelector(".nt-label").value;
       if (!days || !price) return alert("Days and price are required.");
       const saved = await post("admin-inventory", { action: "upsert_tier", type_id: typeId, days, price_cents: cents(price), label: label || null, sort_order: days });
-      toast(saved.stripe_sync_error ? `Saved, but Stripe sync failed: ${saved.stripe_sync_error}` : "Tier saved"); render("inventory");
+      toast(saved.stripe_sync_error ? `Saved, but Stripe sync failed: ${saved.stripe_sync_error}` : "Tier saved");
+      sessionStorage.setItem("openType", typeId); render("inventory");
     }));
     types.filter((t) => t.pricing_mode === "duration_tiers").forEach((t) => {
       const rows = tiers.filter((r) => r.type_id === t.id).sort((a, b) => a.days - b.days);
@@ -863,8 +935,10 @@ views.inventory = async (main) => {
       wrap.innerHTML = rows.length ? `<div class="table-wrap"><table class="table"><thead><tr><th>Days</th><th>Price</th><th>Label</th>${isAdmin ? "<th></th>" : ""}</tr></thead><tbody>
         ${rows.map((r) => `<tr><td>${r.days}</td><td>${money(r.price_cents)}</td><td>${esc(r.label || "")}</td>${isAdmin ? `<td><button class="btn btn-ghost btn-sm" data-del-tier="${r.id}">Del</button></td>` : ""}</tr>`).join("")}
         </tbody></table></div>` : `<p class="muted">No tiers yet.</p>`;
-      if (isAdmin) wrap.querySelectorAll("[data-del-tier]").forEach((b) => b.addEventListener("click", async () => {
-        await post("admin-inventory", { action: "delete_tier", id: b.dataset.delTier }); render("inventory");
+      if (isAdmin) wrap.querySelectorAll("[data-del-tier]").forEach((b) => action(b, async () => {
+        if (!confirm("Delete this price tier?")) return;
+        await post("admin-inventory", { action: "delete_tier", id: b.dataset.delTier });
+        toast("Tier deleted"); sessionStorage.setItem("openType", t.id); render("inventory");
       }));
     });
   };
@@ -880,12 +954,15 @@ views.inventory = async (main) => {
     } catch (err) { alert(err.message); }
     render("inventory");
   });
-  if (isAdmin) $("#add-type").addEventListener("click", async () => {
-    const name = prompt("New type name:"); if (!name) return;
-    const service = prompt("Service (dumpster/junk):", "dumpster") || "dumpster";
-    const category = prompt("Category (grouping key, e.g. roll_off_standard, junk_household, junk_cleanout, heavy_material):", "general") || "general";
-    const pricingMode = prompt("Pricing mode (flat / duration_tiers / quote_only):", "flat") || "flat";
-    await post("admin-inventory", { action: "create_type", name, service, category, pricing_mode: pricingMode, base_price_cents: 0, active: true });
+  if (isAdmin) action($("#add-type"), async () => {
+    const name = $("#nt-name").value.trim(); if (!name) return alert("Enter a name for the new service.");
+    const r = await post("admin-inventory", {
+      action: "create_type", name, service: $("#nt-service").value, category: $("#nt-cat").value.trim() || "general",
+      pricing_mode: $("#nt-mode").value, base_price_cents: cents($("#nt-price").value), active: false,
+    });
+    toast(`Created “${name}” (hidden) — finish its settings, then set Active to Yes`);
+    const id = r.type?.id || r.id;
+    if (id) sessionStorage.setItem("openType", id);
     render("inventory");
   });
   const renderUnits = () => {
@@ -903,20 +980,20 @@ views.inventory = async (main) => {
         <label>Type<select id="nu-type">${types.filter((t) => t.service === "dumpster").map((t) => `<option value="${t.id}">${esc(t.name)}</option>`).join("")}</select></label>
         <div class="actions" style="align-items:flex-end"><button class="btn btn-primary btn-sm" id="nu-add">+ Add unit</button></div>
       </div></div>`;
-    $("#units").querySelectorAll(".u-save").forEach((b) => b.addEventListener("click", async () => {
+    $("#units").querySelectorAll(".u-save").forEach((b) => action(b, async () => {
       const id = b.dataset.id;
       await post("admin-inventory", { action: "update_unit", id, label: $(`.u-label[data-id="${id}"]`).value, status: $(`.u-status[data-id="${id}"]`).value });
       toast("Unit saved");
     }));
-    $("#units").querySelectorAll(".u-del").forEach((b) => b.addEventListener("click", async () => {
+    $("#units").querySelectorAll(".u-del").forEach((b) => action(b, async () => {
       if (!confirm("Delete this unit?")) return;
       await post("admin-inventory", { action: "delete_unit", id: b.dataset.id });
-      render("inventory");
+      toast("Unit deleted"); render("inventory");
     }));
-    $("#nu-add").addEventListener("click", async () => {
-      const label = $("#nu-label").value.trim(); if (!label) return;
+    action($("#nu-add"), async () => {
+      const label = $("#nu-label").value.trim(); if (!label) return alert("Enter a label for the new unit.");
       await post("admin-inventory", { action: "create_unit", type_id: $("#nu-type").value, label });
-      render("inventory");
+      toast(`Unit “${label}” added`); render("inventory");
     });
   };
   renderUnits();
@@ -1036,7 +1113,7 @@ views.availability = async (main) => {
       if (!a || !b || b < a) return alert("Pick a start and an end on or after it.");
       try { await post("admin-blackouts", { action: "update", id: tr.dataset.id, start_at: `${a}T00:00:00Z`, end_at: `${b}T23:59:59Z` }); toast("Shift block updated"); render("availability"); } catch (e) { alert(e.message); }
     });
-    guarded(tr.querySelector("[data-ab-del]"), async () => {
+    action(tr.querySelector("[data-ab-del]"), async () => {
       if (!confirm("Remove this shift block? Customers will be able to book those days.")) return;
       await post("admin-blackouts", { action: "delete", id: tr.dataset.id }); toast("Removed"); render("availability");
     });
@@ -1050,7 +1127,7 @@ views.availability = async (main) => {
       toast("Blackout added"); render("availability");
     } catch (e) { alert(e.message); }
   });
-  main.querySelectorAll("[data-del]").forEach((b) => b.addEventListener("click", async () => { await post("admin-blackouts", { action: "delete", id: b.dataset.del }); render("availability"); }));
+  main.querySelectorAll("[data-del]").forEach((b) => action(b, async () => { if (!confirm("Delete this blackout?")) return; await post("admin-blackouts", { action: "delete", id: b.dataset.del }); toast("Blackout deleted"); render("availability"); }));
 };
 
 // ---------- operations calendar (Availability tab) ----------
@@ -1207,15 +1284,15 @@ views.promos = async (main) => {
       <td><button class="btn btn-ghost btn-sm" data-toggle="${p.id}" data-active="${p.active}">${p.active ? "Active" : "Off"}</button></td>
       <td><button class="btn btn-ghost btn-sm" data-del="${p.id}">Del</button></td>
     </tr>`).join("") || '<tr><td class="muted" colspan="6">No codes yet.</td></tr>'}</tbody></table></div>`;
-  $("#p-add").addEventListener("click", async () => {
+  action($("#p-add"), async () => {
     const kind = $("#p-kind").value;
     const value = kind === "percent" ? Math.round(+$("#p-val").value) : cents($("#p-val").value);
     if (!$("#p-code").value.trim() || !value) return alert("Code and value required.");
     await post("admin-promos", { action: "create", code: $("#p-code").value.trim(), kind, value, min_amount_cents: cents($("#p-min").value), max_uses: $("#p-max").value ? +$("#p-max").value : null, applies_to: $("#p-app").value || null, active: true });
-    render("promos");
+    toast("Promo code created"); render("promos");
   });
-  main.querySelectorAll("[data-toggle]").forEach((b) => b.addEventListener("click", async () => { await post("admin-promos", { action: "update", id: b.dataset.toggle, active: b.dataset.active !== "true" }); render("promos"); }));
-  main.querySelectorAll("[data-del]").forEach((b) => b.addEventListener("click", async () => { if (confirm("Delete code?")) { await post("admin-promos", { action: "delete", id: b.dataset.del }); render("promos"); } }));
+  main.querySelectorAll("[data-toggle]").forEach((b) => action(b, async () => { await post("admin-promos", { action: "update", id: b.dataset.toggle, active: b.dataset.active !== "true" }); render("promos"); }));
+  main.querySelectorAll("[data-del]").forEach((b) => action(b, async () => { if (confirm("Delete code?")) { await post("admin-promos", { action: "delete", id: b.dataset.del }); toast("Deleted"); render("promos"); } }));
 };
 
 // ==================================================================
@@ -1249,7 +1326,7 @@ views.agreement = async (main) => {
     main.querySelectorAll("[data-lang]").forEach((x) => { x.classList.toggle("btn-primary", x === btn); x.classList.toggle("btn-ghost", x !== btn); });
     main.querySelectorAll("[data-pane]").forEach((p) => (p.hidden = p.dataset.pane !== btn.dataset.lang));
   }));
-  guarded($("#a-save"), async () => {
+  action($("#a-save"), async () => {
     if (!en.getHtml().trim()) return alert("English text is required.");
     await post("admin-agreement-template", {
       title: $("#a-title").value, body_html: en.getHtml(),
@@ -1304,7 +1381,8 @@ views.settings = async (main) => {
   const { settings: s } = await authFetch("admin-settings");
   const v = (k, d = "") => s[k] ?? d;
   main.innerHTML = `
-    <p class="hint">Click a section to open it.</p>
+    <h2>Business Settings</h2>
+    <p class="hint">Click a section to open it. The website fee list has its own <a href="#fees">Fee schedule</a> tab.</p>
     <h3>Business &amp; booking rules</h3>
     <div class="form">
       <div class="row two">
@@ -1359,17 +1437,12 @@ views.settings = async (main) => {
       <div class="actions"><button class="btn btn-primary btn-sm" id="z-save">Save zone fees</button></div>
     </div>
 
-    <h3>Contractor rate card <span class="hint">(reference — apply via + New Booking)</span></h3>
+    <h3>Contractor rates</h3>
+    <p class="hint">Approved contractors get these prices online (7-day and 28-day roll-offs; other lengths get the same dollars off as the 7-day). The website's contractor price table shows them too.</p>
     <div class="form">
-      <textarea id="s-contractor" rows="8">${esc(JSON.stringify(v("contractor_rate_card", {}), null, 2))}</textarea>
-      <div class="actions"><button class="btn btn-ghost btn-sm" id="s-contractor-save">Save</button></div>
-    </div>
-
-    <h3>Fee schedule <span class="hint">(shown to customers on the website under “Fees &amp; Policies”)</span></h3>
-    <div class="form">
-      <div id="fee-list"></div>
-      <div class="actions"><button class="btn btn-ghost btn-sm" id="fee-add" type="button">+ Add fee</button><button class="btn btn-primary btn-sm" id="fee-save" type="button">Save fee schedule</button><span class="hint" id="fee-dirty" hidden style="color:#c0392b">Unsaved changes — click Save fee schedule</span></div>
-      <p class="hint">“From” shows as “from $X” on the website. Unit is optional (e.g. “ton”, “day”). Details appear in the Details column on the website. Remove takes effect on the website right away.</p>
+      <div id="rc-rows"></div>
+      <label>Note to staff<textarea id="rc-note" rows="2">${esc(v("contractor_rate_card", {})?.note || "")}</textarea></label>
+      <div class="actions"><button class="btn btn-primary btn-sm" id="s-contractor-save">Save contractor rates</button></div>
     </div>
 
     <h3>“How did you hear about us?” choices</h3>
@@ -1403,57 +1476,21 @@ views.settings = async (main) => {
     });
   }
 
-  // seed the editor from the saved list, or from the legacy reference values on first use
-  const FEE_LABELS = { dry_run_or_inaccessible_cents: "Dry run / blocked access", late_cancellation_lt24h_cents: "Late cancellation (under 24 hrs)", truck_already_dispatched_cents: "Cancel after truck dispatched", overfill_rearrangement_from_cents: "Overfill / rearrange load", long_carry_from_cents: "Long carry", stairs_from_cents: "Stairs", multi_floor_heavy_furniture_from_cents: "Multi-floor heavy furniture", same_day_priority_from_cents: "Same-day priority", after_hours_from_cents: "After-hours service" };
-  let fees = Array.isArray(s.fee_schedule) ? s.fee_schedule : Object.entries(v("fee_schedule_reference", {}) || {})
-    .filter(([k, x]) => typeof x === "number" && k.endsWith("_cents"))
-    .map(([k, x]) => ({ label: FEE_LABELS[k] || k.replace(/_/g, " "), amount_cents: x, from: k.includes("_from_"), unit: "", note: "" }));
-  const drawFees = () => {
-    $("#fee-list").innerHTML = fees.map((f, i) => `
-      <div class="fee-row" data-i="${i}">
-        <input class="fe-label" value="${esc(f.label)}" placeholder="Fee name">
-        <input class="fe-amt" type="number" step="0.01" value="${(f.amount_cents / 100).toFixed(2)}" title="Amount ($)">
-        <label class="chk"><input class="fe-from" type="checkbox" ${f.from ? "checked" : ""}> from</label>
-        <input class="fe-unit" value="${esc(f.unit || "")}" placeholder="unit (ton, day…)">
-        <button class="btn btn-ghost btn-sm fe-del" type="button">Remove</button>
-        <textarea class="fe-note" rows="2" placeholder="Details shown to customers (optional), e.g. when this fee applies">${esc(f.note || "")}</textarea>
-      </div>`).join("") || '<p class="muted">No fees yet.</p>';
-    $("#fee-list").querySelectorAll(".fe-del").forEach((b) => b.addEventListener("click", async () => {
-      const row = b.closest(".fee-row");
-      const label = row.querySelector(".fe-label").value.trim() || "this fee";
-      if (!confirm(`Remove “${label}” from the website fee schedule?`)) return;
-      syncFees();
-      fees.splice(+row.dataset.i, 1);
-      drawFees();
-      await saveFees(`Removed “${label}” — website updated`);
-    }));
-  };
-  const setDirty = (on) => { $("#fee-dirty").hidden = !on; };
-  const saveFees = async (msg) => {
-    syncFees();
-    await post("admin-settings", { settings: { fee_schedule: fees.filter((f) => f.label) } });
-    setDirty(false);
-    toast(msg);
-  };
-  $("#fee-list").addEventListener("input", () => setDirty(true));
-  const syncFees = () => {
-    fees = [...$("#fee-list").querySelectorAll(".fee-row")].map((r) => ({
-      label: r.querySelector(".fe-label").value.trim(), amount_cents: cents(r.querySelector(".fe-amt").value),
-      from: r.querySelector(".fe-from").checked, unit: r.querySelector(".fe-unit").value.trim(), note: r.querySelector(".fe-note").value.trim(),
-    }));
-  };
-  drawFees();
-  $("#fee-add").addEventListener("click", () => { syncFees(); fees.push({ label: "", amount_cents: 0, from: false, unit: "", note: "" }); drawFees(); setDirty(true); });
-  guarded($("#fee-save"), () => saveFees("Fee schedule saved — live on the website"));
-  guarded($("#s-sources-save"), async () => {
+  action($("#s-sources-save"), async () => {
     await post("admin-settings", { settings: { referral_sources: $("#s-sources").value.split("\n").map((x) => x.trim()).filter(Boolean) } });
+    publicCfgPromise = null;
     toast("Saved");
   });
 
   function zones() { return v("distance_zones", []) || []; }
   function dp() { return v("distance_pricing", {}) || {}; }
 
-  $("#dp-save").addEventListener("click", async () => {
+  const card = v("contractor_rate_card", {}) || {};
+  const rcKeys = [...Object.keys(RATE_CARD_LABELS), ...Object.keys(card).filter((k) => k.endsWith("_cents") && !RATE_CARD_LABELS[k])];
+  $("#rc-rows").innerHTML = `<div class="rc-grid">${rcKeys.map((k) => `<label>${esc(RATE_CARD_LABELS[k] || k.replace(/_cents$/, "").replace(/_/g, " "))} ($)
+    <input type="number" step="0.01" min="0" data-rc="${k}" value="${typeof card[k] === "number" ? (card[k] / 100).toFixed(2) : ""}" placeholder="not offered"></label>`).join("")}</div>`;
+
+  action($("#dp-save"), async () => {
     const distance_pricing = {
       hub_address: $("#dp-hub").value.trim(),
       free_radius_miles: Number($("#dp-free").value), per_mile_cents: cents($("#dp-rate").value),
@@ -1461,6 +1498,7 @@ views.settings = async (main) => {
     };
     if (!distance_pricing.hub_address) return alert("Enter the yard address.");
     await post("admin-settings", { settings: { distance_pricing } });
+    publicCfgPromise = null;
     toast("Distance pricing saved — live on the website");
   });
   guarded($("#dp-test"), async () => {
@@ -1473,7 +1511,7 @@ views.settings = async (main) => {
     } catch (e) { m.textContent = e.message; }
   });
 
-  $("#s-save").addEventListener("click", async () => {
+  action($("#s-save"), async () => {
     await post("admin-settings", { settings: {
       company_name: $("#s-name").value, company_phone: $("#s-phone").value, company_email: $("#s-email").value,
       alert_email: $("#s-alert").value, deposit_percent: +$("#s-dep").value, tax_rate_bps: +$("#s-tax").value,
@@ -1481,10 +1519,11 @@ views.settings = async (main) => {
       cash_accepted: $("#s-cash").value === "true",
       time_windows: $("#s-tw").value.split(",").map((x) => x.trim()).filter(Boolean),
     } });
+    publicCfgPromise = null;
     toast("Settings saved");
   });
 
-  $("#z-save").addEventListener("click", async () => {
+  action($("#z-save"), async () => {
     const z = zones();
     const updated = [
       z[0] || { code: "zone1", label: "0-15 miles (included)", fee_cents: 0, quote_only: false },
@@ -1496,13 +1535,134 @@ views.settings = async (main) => {
     toast("Zone fees saved");
   });
 
-  $("#s-contractor-save").addEventListener("click", async () => {
-    try {
-      const parsed = JSON.parse($("#s-contractor").value);
-      await post("admin-settings", { settings: { contractor_rate_card: parsed } });
-      toast("Contractor rate card saved");
-    } catch { alert("Invalid JSON."); }
+  action($("#s-contractor-save"), async () => {
+    const next = { ...card };
+    for (const input of main.querySelectorAll("[data-rc]")) {
+      if (input.value.trim() === "") delete next[input.dataset.rc];
+      else next[input.dataset.rc] = cents(input.value);
+    }
+    next.note = $("#rc-note").value.trim();
+    await post("admin-settings", { settings: { contractor_rate_card: next } });
+    publicCfgPromise = null;
+    toast("Contractor rates saved — live on the website");
   });
+};
+
+// Contractor rate card keys are read by pricing (standard/green 7-day, jobsite 28-day) and
+// by the website's contractor price table, so the keys stay fixed; only the dollars change.
+const RATE_CARD_LABELS = {
+  standard_7day_cents: "Standard 7-day",
+  volume_4_7_cents: "Standard 7-day, 4–7 rentals/mo",
+  volume_8plus_cents: "Standard 7-day, 8+ rentals/mo",
+  jobsite_28day_cents: "28-day jobsite",
+  dump_and_return_cents: "Dump & return / swap",
+  green_7day_cents: "Green waste 7-day",
+  green_volume_4_7_cents: "Green waste 7-day, 4–7 rentals/mo",
+  green_volume_8plus_cents: "Green waste 7-day, 8+ rentals/mo",
+  green_dump_and_return_cents: "Green waste dump & return",
+};
+
+// ==================================================================
+//  FEE SCHEDULE (admin) — the website's "Fee Schedule" pricing tab,
+//  also the presets in "+ Add charge" and the invoice builder.
+// ==================================================================
+const LEGACY_FEE_LABELS = { dry_run_or_inaccessible_cents: "Dry run / blocked access", late_cancellation_lt24h_cents: "Late cancellation (under 24 hrs)", truck_already_dispatched_cents: "Cancel after truck dispatched", overfill_rearrangement_from_cents: "Overfill / rearrange load", long_carry_from_cents: "Long carry", stairs_from_cents: "Stairs", multi_floor_heavy_furniture_from_cents: "Multi-floor heavy furniture", same_day_priority_from_cents: "Same-day priority", after_hours_from_cents: "After-hours service" };
+// Same wording the website uses (js/main.js).
+function feePriceText(f) {
+  if (f.amount_cents == null) return "Call for price";
+  const amt = `$${(f.amount_cents / 100).toFixed(f.amount_cents % 100 ? 2 : 0)}`;
+  return `${f.from ? "from " : ""}${amt}${f.unit ? ` / ${f.unit}` : ""}`;
+}
+
+views.fees = async (main) => {
+  const { settings: s } = await authFetch("admin-settings");
+  // Seed from the saved list, or from the legacy reference values on first use.
+  const load = () => (Array.isArray(s.fee_schedule) ? s.fee_schedule : Object.entries(s.fee_schedule_reference || {})
+    .filter(([k, x]) => typeof x === "number" && k.endsWith("_cents"))
+    .map(([k, x]) => ({ label: LEGACY_FEE_LABELS[k] || k.replace(/_/g, " "), amount_cents: x, from: k.includes("_from_") })))
+    .map((f) => ({ label: f.label || "", amount_cents: f.amount_cents ?? null, from: !!f.from, unit: f.unit || "", note: f.note || "" }));
+  let fees = load();
+
+  main.innerHTML = `
+    <h2>Fee Schedule</h2>
+    <p class="hint">These rows are the <strong>Fee Schedule</strong> tab in the website's pricing section. Staff can also pick them in a booking's <strong>+ Add charge</strong> and in the invoice builder. Changes go live when you click <strong>Save</strong>.</p>
+    <div class="fee-head" aria-hidden="true"><span></span><span>Fee name</span><span>Price ($)</span><span>From?</span><span>Per</span><span>Details for customers</span><span></span></div>
+    <div id="fee-list"></div>
+    <div class="actions"><button class="btn btn-ghost btn-sm" id="fee-add" type="button">+ Add a fee</button></div>
+    <p class="hint">Leave the price blank to show “Call for price”. Tick <strong>From?</strong> to show “from $75”. <strong>Per</strong> is optional, e.g. “ton” shows “$90 / ton”.</p>
+    <h3>How customers see it</h3>
+    <div class="table-wrap"><table class="table fee-preview"><thead><tr><th>Situation</th><th>Fee</th><th>Details</th></tr></thead><tbody id="fee-preview"></tbody></table></div>
+    <div class="save-bar" id="fee-bar" hidden>
+      <span>Unsaved changes to the fee schedule</span>
+      <button class="btn btn-ghost btn-sm" id="fee-discard" type="button">Discard</button>
+      <button class="btn btn-primary btn-sm" id="fee-save" type="button">Save — publish to website</button>
+    </div>`;
+
+  const setDirty = (on) => { unsaved = on; $("#fee-bar").hidden = !on; };
+  const read = () => {
+    fees = [...$("#fee-list").querySelectorAll(".fee-row")].map((r) => {
+      const amt = r.querySelector(".fe-amt").value.trim();
+      return {
+        label: r.querySelector(".fe-label").value.trim(), amount_cents: amt === "" ? null : cents(amt),
+        from: r.querySelector(".fe-from").checked, unit: r.querySelector(".fe-unit").value.trim(), note: r.querySelector(".fe-note").value.trim(),
+      };
+    });
+  };
+  const preview = () => {
+    const rows = fees.filter((f) => f.label);
+    $("#fee-preview").innerHTML = rows.map((f) => `<tr style="cursor:default"><td>${esc(f.label)}</td><td class="nowrap"><strong>${esc(feePriceText(f))}</strong></td><td>${esc(f.note).replace(/\n/g, "<br>")}</td></tr>`).join("")
+      || '<tr><td colspan="3" class="muted">No additional fees.</td></tr>';
+  };
+  const draw = (focusIndex) => {
+    $("#fee-list").innerHTML = fees.map((f, i) => `
+      <div class="fee-row" data-i="${i}">
+        <span class="fee-order"><button class="btn btn-ghost btn-sm" data-move="-1" type="button" ${i === 0 ? "disabled" : ""} title="Move up" aria-label="Move up">↑</button><button class="btn btn-ghost btn-sm" data-move="1" type="button" ${i === fees.length - 1 ? "disabled" : ""} title="Move down" aria-label="Move down">↓</button></span>
+        <input class="fe-label" value="${esc(f.label)}" placeholder="e.g. Stairs" aria-label="Fee name">
+        <input class="fe-amt" type="number" step="0.01" min="0" value="${f.amount_cents == null ? "" : (f.amount_cents / 100).toFixed(2)}" placeholder="call" aria-label="Price in dollars">
+        <label class="chk fe-from-wrap"><input class="fe-from" type="checkbox" ${f.from ? "checked" : ""}> from</label>
+        <input class="fe-unit" value="${esc(f.unit)}" placeholder="ton, day…" aria-label="Per">
+        <textarea class="fe-note" rows="1" placeholder="When this fee applies (optional)" aria-label="Details">${esc(f.note)}</textarea>
+        <button class="btn btn-ghost btn-sm fe-del" type="button" title="Remove this fee">Remove</button>
+      </div>`).join("") || '<div class="empty">No fees. Click “+ Add a fee”.</div>';
+    preview();
+    if (focusIndex != null) $(`.fee-row[data-i="${focusIndex}"] .fe-label`)?.focus();
+  };
+
+  $("#fee-list").addEventListener("input", () => { read(); preview(); setDirty(true); });
+  $("#fee-list").addEventListener("click", (e) => {
+    const btn = e.target.closest("button"); if (!btn) return;
+    read();
+    const i = +btn.closest(".fee-row").dataset.i;
+    if (btn.dataset.move) {
+      const j = i + +btn.dataset.move;
+      [fees[i], fees[j]] = [fees[j], fees[i]];
+    } else if (btn.classList.contains("fe-del")) {
+      if (!confirm(`Remove “${fees[i].label || "this fee"}”? It leaves the website when you click Save.`)) return;
+      fees.splice(i, 1);
+    } else return;
+    draw(); setDirty(true);
+  });
+  $("#fee-add").addEventListener("click", () => {
+    read();
+    fees.push({ label: "", amount_cents: null, from: false, unit: "", note: "" });
+    draw(fees.length - 1); setDirty(true);
+  });
+  $("#fee-discard").addEventListener("click", () => {
+    if (!confirm("Throw away your changes and go back to the saved fee schedule?")) return;
+    fees = load(); draw(); setDirty(false);
+  });
+  action($("#fee-save"), async () => {
+    read();
+    const missing = fees.findIndex((f) => !f.label && (f.amount_cents != null || f.note || f.unit));
+    if (missing >= 0) { $(`.fee-row[data-i="${missing}"] .fe-label`)?.focus(); return alert("Every fee needs a name. Fill it in or remove that row."); }
+    const clean = fees.filter((f) => f.label);
+    const r = await post("admin-settings", { settings: { fee_schedule: clean } });
+    s.fee_schedule = r.settings?.fee_schedule ?? clean;
+    fees = load(); draw(); setDirty(false);
+    publicCfgPromise = null;
+    toast(`Fee schedule saved (${clean.length} fee${clean.length === 1 ? "" : "s"}) — live on the website`);
+  });
+  draw();
 };
 
 // ==================================================================
@@ -1532,8 +1692,8 @@ views.customers = async (main) => {
     </tbody></table></div>` : `<div class="empty">No customers yet.</div>`;
     // click a customer -> Bookings list filtered to them
     $("#cu-list").querySelectorAll("tr[data-q]").forEach((tr) => tr.addEventListener("click", () => {
-      document.querySelector('#admin-nav a[data-view="bookings"]').click();
-      setTimeout(() => { const f = $("#f-q"); if (f) { f.value = tr.dataset.q; $("#f-go").click(); } }, 400);
+      presetFilter = { q: tr.dataset.q };
+      go("bookings");
     }));
   };
   $("#cu-q").addEventListener("input", draw);
@@ -1639,11 +1799,13 @@ views.contractors = async (main) => {
 function contractorBadge(st) {
   return `<span class="badge b-${st === "approved" ? "confirmed" : st === "pending" ? "pending" : "canceled"}">${esc(st)}</span>`;
 }
-function setQueueBadge(n) {
-  const a = document.querySelector('#admin-nav a[data-view="contractors"]');
-  if (a) a.innerHTML = `Contractors${n ? ` <span class="count">${n}</span>` : ""}`;
+function setNavCount(view, label, n) {
+  const a = document.querySelector(`#admin-nav a[data-view="${view}"]`);
+  if (a) a.innerHTML = `${label}${n ? ` <span class="count">${n}</span>` : ""}`;
 }
+function setQueueBadge(n) { setNavCount("contractors", "Contractors", n); }
 async function refreshQueueBadge() {
+  authFetch("admin-quotes").then(({ quotes }) => setNavCount("quotes", "Quote Requests", quotes.filter((q) => q.status === "new").length)).catch(() => {});
   try {
     const { contractors, quotes, queue_bookings } = await authFetch("admin-contractors");
     setQueueBadge(contractors.filter((c) => c.status === "pending").length + queue_bookings.length
@@ -1818,7 +1980,7 @@ views.carousel = async (main) => {
     e.preventDefault();
     const order = ids(), card = b.closest(".slide-card"), i = order.indexOf(card.dataset.id), j = i + +b.dataset.move;
     [order[i], order[j]] = [order[j], order[i]];
-    await post("admin-slides", { action: "reorder", ids: order }); render("carousel");
+    try { await post("admin-slides", { action: "reorder", ids: order }); render("carousel"); } catch (err) { alert(`Could not reorder: ${err.message}`); }
   }));
   list.querySelectorAll(".slide-card").forEach((card) => {
     const read = () => ({
@@ -1833,9 +1995,9 @@ views.carousel = async (main) => {
       const s = read(); if (!s.title) return alert("Title is required.");
       try { await post("admin-slides", { action: "update", ...s }); toast("Slide saved — live on the site"); render("carousel"); } catch (e) { alert(e.message); }
     });
-    guarded(card.querySelector("[data-del]"), async () => {
+    action(card.querySelector("[data-del]"), async () => {
       if (!confirm("Delete this slide?")) return;
-      await post("admin-slides", { action: "delete", id: card.dataset.id }); render("carousel");
+      await post("admin-slides", { action: "delete", id: card.dataset.id }); toast("Slide deleted"); render("carousel");
     });
     card.querySelector(".sl-file").addEventListener("change", async (e) => {
       const file = e.target.files[0]; if (!file) return;
@@ -1847,7 +2009,7 @@ views.carousel = async (main) => {
       } catch (err) { alert(err.message || "Upload failed"); }
     });
   });
-  guarded($("#sl-add"), async () => {
+  action($("#sl-add"), async () => {
     await post("admin-slides", { action: "create", title: "New promo", badge: "Limited time", active: false });
     toast("Slide added (hidden until you turn it on)"); render("carousel");
   });
@@ -1920,6 +2082,7 @@ views.fleet = async (main) => {
 views.quotes = async (main) => {
   const { quotes } = await authFetch("admin-quotes");
   const fresh = quotes.filter((q) => q.status === "new").length;
+  setNavCount("quotes", "Quote Requests", fresh);
   main.innerHTML = `
     <h2>Quote Requests</h2>
     <p class="hint">From the homepage quote form. Call or email the customer, then use <strong>Create booking</strong> to turn the request into a job and build its invoice. Contractor requests also show under Contractors → Queue.</p>

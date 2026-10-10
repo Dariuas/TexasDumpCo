@@ -360,6 +360,7 @@ if (form) {
   if (!cfg || !Array.isArray(cfg.feeSchedule)) return; // keep static fallback rows
   const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[m]));
   body.innerHTML = cfg.feeSchedule.map((f) => {
+    if (f.amount_cents == null) return `<tr><td>${esc(f.label)}</td><td class="price">Call for price</td><td>${esc(f.note).replace(/\n/g, '<br>')}</td></tr>`;
     const amt = `$${(f.amount_cents / 100).toFixed(f.amount_cents % 100 ? 2 : 0)}`;
     return `<tr><td>${esc(f.label)}</td><td class="price">${f.from ? 'from ' : ''}${amt}${f.unit ? ' / ' + esc(f.unit) : ''}</td><td>${esc(f.note).replace(/\n/g, '<br>')}</td></tr>`;
   }).join('') || '<tr><td colspan="3">No additional fees.</td></tr>';
