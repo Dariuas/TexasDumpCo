@@ -17,6 +17,11 @@ interface Body {
   delivery_notes?: string;
   amount_total_cents?: number;
   deposit_cents?: number;
+  customer_name?: string;
+  customer_phone?: string;
+  customer_email?: string;
+  delivery_address?: string;
+  notes?: string;
   // reschedule
   start_date?: string;
   end_date?: string;
@@ -67,6 +72,19 @@ export default adminHandler("staff", async (req, user) => {
       for (const f of ["status", "admin_notes", "flags", "unit_id", "time_window", "delivery_notes", "amount_total_cents", "deposit_cents"] as const) {
         if (body[f] !== undefined) patch[f] = body[f];
       }
+      // Customer details (Edit details in the booking drawer).
+      for (const f of ["customer_name", "customer_phone", "delivery_address"] as const) {
+        if (body[f] === undefined) continue;
+        const v = String(body[f] ?? "").trim();
+        if (!v) return badRequest(`${f.replace("_", " ")} can't be blank`);
+        patch[f] = v;
+      }
+      if (body.customer_email !== undefined) {
+        const email = String(body.customer_email ?? "").trim().toLowerCase();
+        if (email && !/^\S+@\S+\.\S+$/.test(email)) return badRequest("Enter a valid email");
+        patch.customer_email = email;
+      }
+      if (body.notes !== undefined) patch.notes = String(body.notes ?? "").trim() || null;
       if (!Object.keys(patch).length) return badRequest("nothing to update");
       const { error } = await db.from("bookings").update(patch).eq("id", body.id);
       if (error) throw new Error(error.message);

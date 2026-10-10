@@ -437,6 +437,9 @@ async function openBooking(id) {
   const cardIn = payments.filter((p) => p.method === "card" && p.kind !== "refund").reduce((s, p) => s + p.amount_cents, 0);
   const refunded = payments.filter((p) => p.kind === "refund").reduce((s, p) => s + p.amount_cents, 0);
   const refundable = (cardIn || b.amount_paid_cents) - refunded;
+  // The price can be rebuilt until money is taken; after that it changes by + Add charge / Refund.
+  const priceEditable = b.status !== "canceled" && !initialLocked && !(b.flags || []).includes("quote_requested")
+    && b.payment_status !== "cash_pending" && (hasInvoice || !b.amount_paid_cents);
 
   drawer.innerHTML = `
     <button class="close" id="drawer-close">×</button>
@@ -469,8 +472,8 @@ async function openBooking(id) {
     <div class="drawer-actions">
       ${(b.flags || []).includes("quote_requested") && b.status === "pending" ? `
         <button class="btn btn-primary btn-sm" data-act="build-invoice">Build invoice &amp; confirm</button>` : ""}
-      ${hasInvoice && !initialLocked && b.status !== "canceled" && !(b.flags || []).includes("quote_requested") ? `
-        <button class="btn btn-ghost btn-sm" data-act="build-invoice">Edit invoice</button>` : ""}
+      ${priceEditable ? `
+        <button class="btn btn-ghost btn-sm" data-act="build-invoice">${hasInvoice ? "Edit invoice" : "Edit price"}</button>` : ""}
       ${initialOpen.length && b.status !== "canceled" ? `
         <button class="btn btn-primary btn-sm" data-act="pay-link">${initialOpen.some((c) => c.status === "invoiced") ? "Resend pay link" : "Email pay link"}</button>` : ""}
       ${b.payment_method === "card" && b.status !== "canceled" && ["unpaid", "deposit_paid"].includes(b.payment_status) && !hasInvoice
@@ -490,12 +493,31 @@ async function openBooking(id) {
       ${refundable > 0 && b.payment_method === "card" ? `<button class="btn btn-ghost btn-sm" data-act="refund">Refund</button>` : ""}
       ${b.status !== "canceled" ? `<button class="btn btn-ghost btn-sm" data-act="cancel">Cancel</button>` : ""}
     </div>
+    ${!priceEditable && b.status !== "canceled" && !(b.flags || []).includes("quote_requested") ? '<p class="hint">Price already paid: change it with “+ Add charge” below, or Refund.</p>' : ""}
+
+    <details class="edit-details"><summary class="btn btn-ghost btn-sm">Edit details (name, phone, email, address, notes)</summary>
+      <div class="form" style="margin-top:10px">
+        <div class="row two" style="display:grid;gap:10px;grid-template-columns:1fr 1fr">
+          <label>Customer name<input id="ed-name" value="${esc(b.customer_name)}"></label>
+          <label>Phone<input id="ed-phone" value="${esc(b.customer_phone)}"></label>
+        </div>
+        <label>Email<input id="ed-email" type="email" value="${esc(b.customer_email || "")}"></label>
+        <label>Delivery address<input id="ed-address" value="${esc(b.delivery_address)}"></label>
+        <div class="row two" style="display:grid;gap:10px;grid-template-columns:1fr 1fr">
+          <label>Time window<input id="ed-window" value="${esc(b.time_window || "")}" placeholder="e.g. 8–10 am"></label>
+          <label>Delivery notes<input id="ed-dnotes" value="${esc(b.delivery_notes || "")}"></label>
+        </div>
+        <label>Job notes<textarea id="ed-notes" rows="2">${esc(b.notes || "")}</textarea></label>
+        <p class="hint">To change the dates use Reschedule; to change the price use ${priceEditable ? (hasInvoice ? "Edit invoice" : "Edit price") : "+ Add charge or Refund"}.</p>
+        <div class="actions"><button class="btn btn-primary btn-sm" data-act="save-details">Save details</button></div>
+      </div>
+    </details>
 
     <div class="section-line"></div>
     <label class="form-inline">Status
       <select id="d-status">${["pending", "confirmed", "scheduled", "delivered", "picked_up", "completed", "canceled"].map((s) => `<option ${s === b.status ? "selected" : ""}>${s}</option>`).join("")}</select>
     </label>
-    <div style="margin:10px 0">
+    <div style="margin:10px 0" id="d-flags">
       <span class="hint">Flags:</span>
       ${["hazardous", "overweight", "access_issue", "review"].map((f) => `<label class="chk"><input type="checkbox" value="${f}" ${(b.flags || []).includes(f) ? "checked" : ""}> ${f}</label>`).join(" ")}
     </div>
@@ -549,7 +571,10 @@ async function openBooking(id) {
     <h3>Payment history</h3>
     <div class="table-wrap"><table class="table"><tbody>
       ${payments.map((p) => `<tr><td>${p.kind}</td><td>${p.method}</td><td>${p.kind === "refund" ? "−" : ""}${money(p.amount_cents)}</td><td>${badge(p.status)}</td><td>${new Date(p.created_at).toLocaleDateString()}</td></tr>`).join("") || '<tr><td class="muted">No payments recorded.</td></tr>'}
-    </tbody></table></div>`;
+    </tbody></table></div>
+    ${me.role === "admin" ? `<div class="section-line"></div>
+    <div class="actions"><button class="btn btn-danger btn-sm" data-act="delete">Delete booking permanently</button>
+      <span class="hint">For test or junk bookings. Removes it from every list and report.</span></div>` : ""}`;
 
   drawer.hidden = false; backdrop.hidden = false;
   const close = () => { drawer.hidden = true; backdrop.hidden = true; };
@@ -561,9 +586,26 @@ async function openBooking(id) {
     const act = btn.dataset.act;
     try {
       if (act === "save") {
-        const flags = [...drawer.querySelectorAll('.chk input:checked')].map((c) => c.value);
+        // Keep flags staff can't tick here (quote_requested, paid_no_capacity...); only the four checkboxes change.
+        const boxes = ["hazardous", "overweight", "access_issue", "review"];
+        const flags = [...(b.flags || []).filter((f) => !boxes.includes(f)), ...[...drawer.querySelectorAll("#d-flags input:checked")].map((c) => c.value)];
         await post("admin-booking-update", { id, action: "update", status: $("#d-status").value, flags, admin_notes: $("#d-notes").value });
         toast("Saved"); refresh();
+      } else if (act === "save-details") {
+        await post("admin-booking-update", {
+          id, action: "update",
+          customer_name: $("#ed-name").value, customer_phone: $("#ed-phone").value, customer_email: $("#ed-email").value,
+          delivery_address: $("#ed-address").value, time_window: $("#ed-window").value.trim(),
+          delivery_notes: $("#ed-dnotes").value.trim(), notes: $("#ed-notes").value,
+        });
+        toast("Details saved"); refresh(); render(currentView());
+      } else if (act === "delete") {
+        const paidMsg = refundable > 0 && b.payment_method === "card"
+          ? `\n\nThis booking has ${money(refundable)} paid by card that was not refunded. Deleting does NOT refund it in Stripe.` : "";
+        const typed = prompt(`Permanently delete ${b.reference} (${b.customer_name})? Its charges, payments and photos are deleted too. This cannot be undone.${paidMsg}\n\nType DELETE to confirm:`);
+        if (typed?.trim().toUpperCase() !== "DELETE") return;
+        await post("admin-delete", { kind: "booking", id });
+        toast(`${b.reference} deleted`); close(); render(currentView());
       } else if (act === "cancel") {
         const paidMsg = refundable > 0 && b.payment_method === "card"
           ? `\n\nThe customer paid ${money(refundable)} by card. Canceling does NOT refund it. Use Refund for that.` : "";
@@ -1685,15 +1727,28 @@ views.customers = async (main) => {
   const draw = () => {
     const q = $("#cu-q").value.trim().toLowerCase();
     const rows = customers.filter((c) => !q || [c.name, c.email, c.phone].some((x) => String(x || "").toLowerCase().includes(q)));
-    $("#cu-list").innerHTML = rows.length ? `<div class="table-wrap"><table class="table"><thead><tr><th>Customer</th><th>Contact</th><th>Jobs</th><th>Collected</th><th>First</th><th>Last</th><th>Heard about us</th></tr></thead><tbody>
-      ${rows.map((c) => `<tr data-q="${esc(c.email || c.phone)}"><td><strong>${esc(c.name)}</strong>${c.contractor ? ' <span class="badge b-confirmed">contractor</span>' : ""}${c.bookings > 1 ? ' <span class="badge b-scheduled">repeat</span>' : ""}</td>
+    const isAdmin = me.role === "admin";
+    $("#cu-list").innerHTML = rows.length ? `<div class="table-wrap"><table class="table"><thead><tr><th>Customer</th><th>Contact</th><th>Jobs</th><th>Collected</th><th>First</th><th>Last</th><th>Heard about us</th>${isAdmin ? "<th></th>" : ""}</tr></thead><tbody>
+      ${rows.map((c) => `<tr data-q="${esc(c.email || c.phone)}" data-i="${customers.indexOf(c)}"><td><strong>${esc(c.name)}</strong>${c.contractor ? ' <span class="badge b-confirmed">contractor</span>' : ""}${c.bookings > 1 ? ' <span class="badge b-scheduled">repeat</span>' : ""}</td>
         <td>${esc(c.phone)}<br><span class="muted">${esc(c.email)}</span></td><td>${c.bookings}</td><td>${money(c.spend_cents)}</td>
-        <td>${esc(c.first_booking)}</td><td>${esc(c.last_booking)}</td><td>${esc(c.referral_source || "—")}</td></tr>`).join("")}
+        <td>${esc(c.first_booking)}</td><td>${esc(c.last_booking)}</td><td>${esc(c.referral_source || "—")}</td>
+        ${isAdmin ? '<td><button class="btn btn-danger btn-sm" data-del title="Delete this customer and all their bookings">Delete</button></td>' : ""}</tr>`).join("")}
     </tbody></table></div>` : `<div class="empty">No customers yet.</div>`;
     // click a customer -> Bookings list filtered to them
-    $("#cu-list").querySelectorAll("tr[data-q]").forEach((tr) => tr.addEventListener("click", () => {
+    $("#cu-list").querySelectorAll("tr[data-q]").forEach((tr) => tr.addEventListener("click", (e) => {
+      if (e.target.closest("[data-del]")) return;
       presetFilter = { q: tr.dataset.q };
       go("bookings");
+    }));
+    $("#cu-list").querySelectorAll("[data-del]").forEach((btn) => guarded(btn, async () => {
+      const c = customers[+btn.closest("tr").dataset.i];
+      const typed = prompt(`Permanently delete ${c.name} (${c.email || c.phone})?\n\nAll of their bookings, charges, payments and photos${c.email ? " and quote requests" : ""} are deleted too. Money already paid by card is NOT refunded in Stripe. This cannot be undone.${c.contractor ? "\n\nTheir contractor account stays: delete it under Contractors → Accounts." : ""}\n\nType DELETE to confirm:`);
+      if (typed?.trim().toUpperCase() !== "DELETE") return;
+      try {
+        const r = await post("admin-delete", { kind: "customer", email: c.email || "", phone: c.email ? "" : c.phone });
+        toast(`${c.name} deleted (${r.bookings} booking${r.bookings === 1 ? "" : "s"}${r.quotes ? `, ${r.quotes} quote request${r.quotes === 1 ? "" : "s"}` : ""})`);
+        views.customers(main);
+      } catch (e) { alert(e.message); }
     }));
   };
   $("#cu-q").addEventListener("input", draw);
@@ -1852,7 +1907,10 @@ async function openContractor(id, onChange) {
     <h3>Quote requests (${quotes.length})</h3>
     <div class="table-wrap"><table class="table"><tbody>
       ${quotes.map((q) => `<tr><td>${new Date(q.created_at).toLocaleDateString()}</td><td>${esc(q.service || "")}</td><td>${badge(q.status)}</td></tr>`).join("") || '<tr><td class="muted">No quote requests.</td></tr>'}
-    </tbody></table></div>`;
+    </tbody></table></div>
+    ${me.role === "admin" ? `<div class="section-line"></div>
+    <div class="actions"><button class="btn btn-danger btn-sm" id="cd-delete">Delete contractor account</button>
+      <span class="hint">For test or junk accounts. Their bookings stay; delete those from the booking or Customers page.</span></div>` : ""}`;
   drawer.hidden = false; backdrop.hidden = false;
   const close = () => { drawer.hidden = true; backdrop.hidden = true; };
   $("#cd-close").addEventListener("click", close);
@@ -1876,6 +1934,11 @@ async function openContractor(id, onChange) {
       });
       toast("Saved"); reopen();
     } catch (e) { alert(e.message); }
+  });
+  if ($("#cd-delete")) guarded($("#cd-delete"), async () => {
+    const typed = prompt(`Permanently delete the contractor account ${c.company_name} (${c.email})? This cannot be undone.${bookings.length ? `\n\nTheir ${bookings.length} booking(s) stay, no longer linked to a contractor.` : ""}\n\nType DELETE to confirm:`);
+    if (typed?.trim().toUpperCase() !== "DELETE") return;
+    try { await post("admin-delete", { kind: "contractor", id }); toast(`${c.company_name} deleted`); close(); onChange?.(); } catch (e) { alert(e.message); }
   });
   $("#cd-cert-view")?.addEventListener("click", async () => {
     try { const { url } = await post("admin-contractors", { id, action: "cert_view" }); window.open(url, "_blank", "noopener"); } catch (e) { alert(e.message); }
