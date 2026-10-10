@@ -242,8 +242,7 @@
       <button class="pricing-tab" role="tab" data-tab="residential" aria-selected="true"><span class="n">1</span>Dumpster Rentals</button>
       <button class="pricing-tab" role="tab" data-tab="contractor" aria-selected="false"><span class="n">2</span>Contractor Pricing</button>
       <button class="pricing-tab" role="tab" data-tab="junk" aria-selected="false"><span class="n">3</span>Junk Hauling</button>
-      <button class="pricing-tab" role="tab" data-tab="heavy" aria-selected="false"><span class="n">4</span>Heavy Materials</button>
-      <button class="pricing-tab" role="tab" data-tab="fees" aria-selected="false"><span class="n">5</span>Fees &amp; Policies</button>
+      <button class="pricing-tab" role="tab" data-tab="fees" aria-selected="false"><span class="n">4</span>Fees &amp; Policies</button>
     </div>
 
     <!-- TAB 1: RESIDENTIAL ROLL-OFF -->
@@ -254,24 +253,40 @@
           <p>For residential cleanouts, remodels, DIY projects and general debris. You load it — we handle delivery and pickup.</p>
         </div>
       </div>
-      <div class="price-table-wrap">
-        <table class="price-table">
-          <thead><tr><th>Rental Length</th><th>Starting Price</th><th>Included</th><th>Best For</th></tr></thead>
-          <tbody>
-            <tr><td>1 Day &mdash; Quick Load</td><td class="price" data-price-cat="roll_off_standard" data-price-days="1">$349</td><td><span data-live="std_tons">1.5</span> tons</td><td>Fast cleanout / one-day project</td></tr>
-            <tr><td>3 Days</td><td class="price" data-price-cat="roll_off_standard" data-price-days="3">$379</td><td><span data-live="std_tons">1.5</span> tons</td><td>Garage, room, small remodel</td></tr>
-            <tr class="popular"><td>7 Days <span class="badge-pop">Most Popular</span></td><td class="price" data-price-cat="roll_off_standard" data-price-days="7">$419</td><td><span data-live="std_tons">1.5</span> tons</td><td>Typical cleanout / remodel</td></tr>
-            <tr><td>14 Days</td><td class="price" data-price-cat="roll_off_standard" data-price-days="14">$549</td><td><span data-live="std_tons">1.5</span> tons</td><td>Longer renovation / estate cleanout</td></tr>
-            <tr><td>28 Days</td><td class="price" data-price-cat="roll_off_standard" data-price-days="28">$749</td><td><span data-live="std_tons">1.5</span> tons</td><td>Extended residential project</td></tr>
-          </tbody>
-        </table>
+      <p class="rate-steps"><strong>1</strong> Pick your rental length &nbsp;&rarr;&nbsp; <strong>2</strong> Pick what goes in it &nbsp;&rarr;&nbsp; <strong>3</strong> Book online</p>
+      <div class="rate-cards" id="rate-cards">
+        <div class="rate-card rc-std" data-rate-cat="roll_off_standard">
+          <h4>Standard</h4>
+          <p class="rc-terms" data-rate-terms>Roll-off includes 3,000 lb; additional weight $45 per 1,000 lb.</p>
+          <ul class="rc-tiers"><li><span>1 Day</span><strong data-price-cat="roll_off_standard" data-price-days="1">$339</strong></li><li><span>3 Days</span><strong data-price-cat="roll_off_standard" data-price-days="3">$369</strong></li><li><span>7 Days</span><strong data-price-cat="roll_off_standard" data-price-days="7">$419</strong></li><li><span>14 Days</span><strong data-price-cat="roll_off_standard" data-price-days="14">$539</strong></li><li><span>28 Days</span><strong data-price-cat="roll_off_standard" data-price-days="28">$739</strong></li></ul>
+          <p class="rc-note">Household junk, remodel and construction debris, furniture and general cleanouts.</p>
+        </div>
+        <div class="rate-card rc-heavy" data-rate-cat="roll_off_heavy">
+          <h4>Heavy Materials</h4>
+          <p class="rc-terms" data-rate-terms>Roll-off includes 1,000 lb; additional weight $135 per 1,000 lb.</p>
+          <ul class="rc-tiers"><li><span>1 Day</span><strong data-price-cat="roll_off_heavy" data-price-days="1">$339</strong></li><li><span>3 Days</span><strong data-price-cat="roll_off_heavy" data-price-days="3">$369</strong></li><li><span>7 Days</span><strong data-price-cat="roll_off_heavy" data-price-days="7">$419</strong></li><li><span>14 Days</span><strong data-price-cat="roll_off_heavy" data-price-days="14">$539</strong></li><li><span>28 Days</span><strong data-price-cat="roll_off_heavy" data-price-days="28">$739</strong></li></ul>
+          <p class="rc-note">For concrete, brick, block, dirt, soil, rock, gravel, ceramic or porcelain tile, roofing shingles, drywall, sheetrock and heavy timber.</p>
+        </div>
+        <div class="rate-card rc-yard rc-wide" data-rate-cat="roll_off_green">
+          <h4>Yard Waste / Brush Only</h4>
+          <p class="rc-terms">Includes 3.5 cubic yards of clean brush; additional volume is $18 per cubic yard.</p>
+          <ul class="rc-tiers"><li><span>1 Day</span><strong data-price-cat="roll_off_green" data-price-days="1">$339</strong></li><li><span>3 Days</span><strong data-price-cat="roll_off_green" data-price-days="3">$369</strong></li><li><span>7 Days</span><strong data-price-cat="roll_off_green" data-price-days="7">$419</strong></li><li><span>14 Days</span><strong data-price-cat="roll_off_green" data-price-days="14">$539</strong></li><li><span>28 Days</span><strong data-price-cat="roll_off_green" data-price-days="28">$739</strong></li></ul>
+          <h5>Additional brush, added to the rental price</h5>
+          <ul class="rc-loads" id="rc-loads">
+            <li><strong>1/4 Load</strong><span>3.5 yards &middot; included</span></li>
+            <li><strong>1/2 Load</strong><span>7 yards &middot; +$63</span></li>
+            <li><strong>3/4 Load</strong><span>10.5 yards &middot; +$126</span></li>
+            <li><strong>Full Load</strong><span>14 yards &middot; +$189</span></li>
+          </ul>
+        </div>
       </div>
+      <p class="rate-cta"><a href="/book/?service=dumpster" class="btn btn-primary">Book a Roll-Off Online</a> <a href="assets/images/price-sheet.jpg" class="btn btn-dark" target="_blank" rel="noopener">View printable price sheet</a></p>
       <div class="spec-img">
         <img src="assets/images/14-yard-dumpster-dimensions.jpg" alt="Texas Dumpster Co 14-yard roll-off dumpster dimensions — 14 ft long, 6 ft 11 in wide, 4 ft high">
       </div>
       <div class="pricing-notes">
-        <div class="pricing-note"><h4>What's included</h4><p>14-yard roll-off dumpster, delivery + pickup, rental time shown, up to <span data-live="std_tons">1.5</span> tons (<span data-live="std_lbs">3,000</span> lb) disposal, and standard placement within our 0&ndash;15 mile delivery zone.</p></div>
-        <div class="pricing-note"><h4>Common add-ons</h4><p>Extra day <span data-live="std_extra_day">$15</span> &middot; Extra week $90 &middot; Debris overage <span data-live="std_overage">$90</span>/ton (heavy materials excluded, see tab 4) &middot; Mileage past <span data-live="free_radius">15</span> miles from our Leander yard: <span data-live="per_mile">$1.85</span>/mile (round trip)</p></div>
+        <div class="pricing-note"><h4>What's included</h4><p>14-yard roll-off dumpster, delivery + pickup, the rental time you pick, disposal up to the included weight or volume for your material, and standard placement within our 0&ndash;<span data-live="free_radius">15</span> mile delivery zone.</p></div>
+        <div class="pricing-note"><h4>Additional charges</h4><p>Extra day <span data-live="std_extra_day">$15</span> &middot; Weight or volume over what's included, at the rate for your material (above) &middot; Mileage past <span data-live="free_radius">15</span> miles from our Leander yard: <span data-live="per_mile">$1.85</span>/mile (round trip) &middot; Other situations: see <a href="#pricing" data-goto-tab="fees">Fees &amp; Policies</a></p></div>
       </div>
     </div>
 
@@ -297,7 +312,7 @@
       </div>
       <div class="pricing-notes">
         <div class="pricing-note"><h4>Account setup</h4><p>Card on file or an approved billing arrangement. New contractors start at $389/7-day; volume rates are earned by actual repeat usage.</p></div>
-        <div class="pricing-note"><h4>Heavy material exception</h4><p>Concrete, brick, dirt, rock, gravel, tile and shingles use weight-based Heavy Material pricing (tab 4) instead of the standard rental + overage rate.</p></div>
+        <div class="pricing-note"><h4>Heavy material exception</h4><p>Concrete, brick, dirt, rock, gravel, tile and shingles use the Heavy Materials weight terms (tab 1) instead of the standard included weight.</p></div>
       </div>
       <div class="contractor-signup" id="contractor-signup">
         <h4>Apply for a contractor account</h4>
@@ -340,37 +355,12 @@
         </table>
       </div>
       <div class="pricing-notes">
-        <div class="pricing-note"><h4>Single-item pickups</h4><p>Sofa $149&ndash;$199 &middot; Mattress from $149 &middot; Dresser/desk $149&ndash;$199 &middot; Sectional $199&ndash;$299 &middot; Appliances from $149 &middot; Hot tub from $450. Multiple items are usually priced by trailer volume instead.</p></div>
+        <div class="pricing-note"><h4>Special items <span class="hint">(added to the load price)</span></h4><p id="junk-addons">Sofa $149&ndash;$199 &middot; Mattress from $149 &middot; Dresser/desk $149&ndash;$199 &middot; Sectional $199&ndash;$299 &middot; Appliances from $149 &middot; Hot tub from $450. Multiple items are usually priced by trailer volume instead.</p></div>
         <div class="pricing-note"><h4>Included</h4><p>Loading, hauling, standard disposal, basic sweep-up, normal local travel and typical two-person handling.</p></div>
       </div>
     </div>
 
-    <!-- TAB 4: HEAVY MATERIALS -->
-    <div class="pricing-panel" data-panel="heavy">
-      <div class="pricing-panel-head">
-        <div>
-          <h3>Construction &amp; Heavy Material Pricing</h3>
-          <p>Dense material is priced by actual weight, not by how full the container looks. This keeps loads safe and legal to transport.</p>
-        </div>
-      </div>
-      <div class="price-table-wrap">
-        <table class="price-table">
-          <thead><tr><th>Material</th><th>Starting Price</th><th></th><th>Then</th></tr></thead>
-          <tbody>
-            <tr><td>Concrete / Brick / Block / Dirt / Soil</td><td class="price" data-price-cat="heavy_material" data-price-idx="0">$249</td><td>up to ~1,000 lb</td><td>+$125 per additional 1,000 lb</td></tr>
-            <tr><td>Rock / Gravel / Ceramic or Porcelain Tile</td><td class="price" data-price-cat="heavy_material" data-price-idx="1">$249</td><td>minimum</td><td>+$125&ndash;$140 per additional 1,000 lb</td></tr>
-            <tr><td>Roofing Shingles</td><td class="price" data-price-cat="heavy_material" data-price-idx="2">$299</td><td>up to ~1,000 lb</td><td>+$140 per additional 1,000 lb</td></tr>
-            <tr><td>Drywall / Sheetrock</td><td class="price" data-price-cat="heavy_material" data-price-idx="3">$225</td><td>minimum</td><td>+$110&ndash;$125 per additional 1,000 lb</td></tr>
-          </tbody>
-        </table>
-      </div>
-      <div class="pricing-notes">
-        <div class="pricing-note"><h4>Example reference</h4><p>Concrete/brick/dirt: 2,000 lb &asymp; $374 &middot; 3,000 lb &asymp; $499 &middot; 5,000 lb &asymp; $749. Shingles: 2,000 lb &asymp; $439 &middot; 4,000 lb &asymp; $719.</p></div>
-        <div class="pricing-note"><h4>Why it's priced this way</h4><p>Heavy material replaces the standard rental + overage formula entirely. We'll confirm a safe fill line for your load before delivery so transport stays legal and safe.</p></div>
-      </div>
-    </div>
-
-    <!-- TAB 5: FEE SCHEDULE (rows come from the admin-editable fee schedule) -->
+    <!-- TAB 4: FEE SCHEDULE (rows come from the admin-editable fee schedule) -->
     <div class="pricing-panel" data-panel="fees">
       <div class="pricing-panel-head">
         <div>
@@ -440,6 +430,9 @@
       <div class="why-item"><h3><span class="ico">&#9201;</span>Reliable Delivery</h3><p>We confirm your delivery and pickup window, and keep you updated on any changes.</p></div>
       <div class="why-item"><h3><span class="ico">&#9989;</span>Customer First</h3><p>Questions or changes? Call or text us. We'll help you choose the right service and guide you through the process.</p></div>
     </div>
+    <figure class="why-photo">
+      <img src="assets/images/truck-roll-off-trailer.jpg" alt="Texas Dumpster Co yellow pickup truck towing a black roll-off dumpster trailer" loading="lazy" width="1260" height="1240">
+    </figure>
   </div>
 </section>
 

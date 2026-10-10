@@ -49,6 +49,30 @@
 .type-card .tc-desc{ color:#555; font-size:.92rem; margin-top:6px; }
 .type-card.selected .tc-desc{ color:#3a3320; }
 
+/* roll-off material cards (Standard / Heavy / Yard waste), colors from the price sheet */
+.material-card{
+  display:block; background:var(--white); border:2px solid var(--black); border-radius:var(--radius);
+  box-shadow:4px 4px 0 var(--black); overflow:hidden; cursor:pointer; text-align:left;
+}
+.material-card .tc-top{ display:flex; justify-content:space-between; align-items:baseline; gap:10px; padding:12px 16px; }
+.material-card .tc-name{ font-family:var(--display); font-size:1.3rem; }
+.material-card .tc-price{ font-family:var(--tag); font-weight:700; font-size:1.2rem; white-space:nowrap; }
+.material-card.mat-std .tc-top{ background:#e9b73c; color:var(--black); }
+.material-card.mat-heavy .tc-top{ background:#3f5f86; color:#fff; }
+.material-card.mat-yard .tc-top{ background:#55744a; color:#fff; }
+.material-card .tc-desc, .material-card .tc-terms{ display:block; padding:12px 16px 14px; color:#333; font-size:.93rem; }
+.material-card .tc-terms{ font-weight:700; padding-top:0; }
+.material-card .mat-more{ display:none; padding:0 16px 14px; }
+.material-card.selected{ outline:4px solid var(--yellow); outline-offset:-4px; box-shadow:6px 6px 0 var(--black); }
+.material-card.selected .mat-more{ display:block; }
+.material-card:focus-visible{ outline:3px solid var(--black); outline-offset:2px; }
+.material-card .hint{ color:#555; font-size:.85rem; margin:8px 0 0; }
+.load-list{ display:grid; gap:6px; margin-top:4px; }
+.load-opt{ display:flex; align-items:center; gap:10px; padding:8px 10px; border:2px solid var(--black); border-radius:var(--radius); background:#fff; font-size:.93rem; color:#111; }
+.load-opt input{ width:18px; height:18px; }
+.load-opt span:first-of-type{ flex:1; }
+.summary .line.note{ color:#cfc9bd; font-size:.85rem; padding-top:0; }
+
 /* fields */
 .field{ display:block; margin-bottom:16px; }
 /* .field display:block was overriding the hidden attribute */

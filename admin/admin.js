@@ -826,7 +826,7 @@ views.inventory = async (main) => {
     <p class="hint">Types sharing the same "Equipment pool" label share physical containers for availability (e.g. Standard + Clean Green Waste roll-offs).</p>
     <div id="units"></div></details>
     <details class="section-fold" open><summary><h3>Add-on items</h3></summary>
-    <p class="hint">Customers see these as checkboxes when they book <strong>Junk Hauling</strong> online (mattress, appliance, tires...). Staff can also pick them in a booking's <strong>+ Add charge</strong> and in the invoice builder. Fees like stairs or dry runs that customers should see on the website belong in Settings → Fee schedule.</p>
+    <p class="hint">Customers see these as checkboxes when they book <strong>Junk Hauling</strong> online, and they're listed under “Special items” on the website's Junk Hauling price tab. <strong>Yard waste load sizes</strong> are the extra-brush choices for a Yard Waste / Brush roll-off. Set an item to <strong>Off</strong> to hide it, <strong>Delete</strong> to remove it. Staff can also pick these in a booking's <strong>+ Add charge</strong> and the invoice builder. Fees like stairs or dry runs belong on the <a href="#fees">Fee schedule</a> tab.</p>
     <div id="addons"></div></details>`;
 
   const typeName = (id) => types.find((t) => t.id === id)?.name || "?";
@@ -999,8 +999,8 @@ views.inventory = async (main) => {
   renderUnits();
 
   const renderAddons = () => {
-    const CAT_TITLE = { specialty: "Specialty items", appliance: "Appliances", access: "Access & carry", fee: "Fees" };
-    const cats = ["specialty", "appliance", "access", "fee"];
+    const CAT_TITLE = { specialty: "Specialty items", appliance: "Appliances", access: "Access & carry", fee: "Fees", brush_load: "Yard waste load sizes" };
+    const cats = ["specialty", "appliance", "access", "fee", "brush_load"];
     const card = (a) => `<div class="addon-card ${a.active ? "" : "off"}">
         <input class="a-name" data-id="${a.id}" value="${esc(a.name)}" ${isAdmin ? "" : "disabled"} aria-label="Name">
         <div class="addon-line">

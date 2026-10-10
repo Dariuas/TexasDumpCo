@@ -11,16 +11,27 @@ const money = (c) => `$${(c / 100).toFixed(2)}`;
 const addDays = (dateStr, n) => { const d = new Date(dateStr + "T00:00:00"); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
 const todayStr = () => new Date().toISOString().slice(0, 10);
 
-const CATEGORY_META = {
-  roll_off_standard: { title: "Roll-Off Dumpster", sub: "You load it — 14-yard container, 1 to 28 days." },
-  roll_off_green:    { title: "Clean Green Waste Roll-Off", sub: "Tree limbs, brush & untreated natural wood only." },
-  junk_household:    { title: "Junk Hauling", sub: "Our crew loads and hauls away household junk." },
-  junk_yard_waste:   { title: "Yard Waste Hauling", sub: "Our crew hauls away brush & yard debris — no dumpster needed." },
-  junk_cleanout:     { title: "Cleanout Service", sub: "Garage, house, apartment or storage unit — we do the work." },
-  heavy_material:    { title: "Heavy Material", sub: "Concrete, dirt, rock, tile or shingles — priced by weight." },
+// The services offered online. A roll-off rental is one service: the customer picks the
+// rental length, then what goes in it (standard, heavy materials, yard waste/brush).
+// Catalog categories not listed here (yard waste hauling, old heavy-material quotes)
+// are booked by phone.
+const SERVICES = [
+  { id: "rolloff", cats: ["roll_off_standard", "roll_off_heavy", "roll_off_green"], title: "Roll-Off Dumpster Rental", sub: "You load it — 14-yard container, 1 to 28 days. Standard debris, heavy materials or yard waste/brush." },
+  { id: "junk", cats: ["junk_household"], title: "Junk Hauling", sub: "Our crew loads and hauls away household junk." },
+  { id: "cleanout", cats: ["junk_cleanout"], title: "Cleanout Service", sub: "Garage, house, apartment or storage unit — we do the work." },
+];
+const MATERIAL = {
+  roll_off_standard: { title: "Standard", color: "std" },
+  roll_off_heavy: { title: "Heavy Materials", color: "heavy" },
+  roll_off_green: { title: "Yard Waste / Brush Only", color: "yard" },
 };
-const STEP_ORDER = ["category", "type", "duration", "date", "details", "agreement", "payment"];
+const BRUSH_LOAD = "brush_load";
 const STEP_LABEL = { category: "Service", type: "Choose", duration: "Length", date: "Date", details: "Details", agreement: "Agreement", payment: "Payment" };
+function stepOrder() {
+  return isRolloff()
+    ? ["category", "duration", "type", "date", "details", "agreement", "payment"]
+    : ["category", "type", "duration", "date", "details", "agreement", "payment"];
+}
 
 const state = {
   config: null,
@@ -79,8 +90,8 @@ const state = {
     }
     const svc = qs.get("service");
     if (svc) {
-      const guess = svc === "junk" ? "junk_household" : "roll_off_standard";
-      if (state.types.some((t) => t.category === guess)) selectCategory(guess);
+      const guess = svc === "junk" ? "junk" : svc === "cleanout" ? "cleanout" : "rolloff";
+      if (typesInCategory(guess).length) selectCategory(guess);
     }
   } catch (err) {
     showError(err.message);
@@ -101,6 +112,7 @@ function setupStatic() {
 
   document.querySelectorAll("[data-back]").forEach((b) => b.addEventListener("click", back));
   $("#to-details").addEventListener("click", onDateNext);
+  $("#type-continue").addEventListener("click", () => { if (state.type) advance("type"); });
   $("#c-address").addEventListener("change", () => { state.distance = null; checkDistance(); });
   $("#c-is-contractor").addEventListener("change", () => {
     $("#contractor-fields").hidden = !$("#c-is-contractor").checked;
@@ -132,15 +144,18 @@ function distanceQuoteOnly() {
 function needsQuote() {
   return (state.type && state.type.pricing_mode === "quote_only") || distanceQuoteOnly() || isContractor();
 }
-function categoriesInCatalog() {
-  const seen = new Set();
-  return state.types.filter((t) => { if (seen.has(t.category)) return false; seen.add(t.category); return true; }).map((t) => t.category);
+function isRolloff() { return state.category === "rolloff"; }
+function serviceDef(id) { return SERVICES.find((s) => s.id === id); }
+function typesInCategory(id) {
+  const svc = serviceDef(id);
+  if (!svc) return [];
+  // keep the service's own category order (standard, heavy, yard waste)
+  return svc.cats.flatMap((c) => state.types.filter((t) => t.category === c));
 }
-function typesInCategory(cat) { return state.types.filter((t) => t.category === cat); }
 
 function shouldSkip(stepId) {
-  if (stepId === "type") return typesInCategory(state.category || "").length <= 1;
-  if (stepId === "duration") return !isDurationType(state.type);
+  if (stepId === "type") return !isRolloff() && typesInCategory(state.category || "").length <= 1;
+  if (stepId === "duration") return isRolloff() ? false : !isDurationType(state.type);
   return false;
 }
 function goStep(id) {
@@ -170,17 +185,19 @@ function mountDateCalendar() {
   });
 }
 function advance(from) {
-  let i = STEP_ORDER.indexOf(from) + 1;
-  while (i < STEP_ORDER.length && shouldSkip(STEP_ORDER[i])) i++;
-  goStep(STEP_ORDER[i]);
+  const order = stepOrder();
+  let i = order.indexOf(from) + 1;
+  while (i < order.length && shouldSkip(order[i])) i++;
+  goStep(order[i]);
 }
 function back() {
-  let i = STEP_ORDER.indexOf(state.step) - 1;
-  while (i >= 0 && shouldSkip(STEP_ORDER[i])) i--;
-  if (i >= 0) goStep(STEP_ORDER[i]);
+  const order = stepOrder();
+  let i = order.indexOf(state.step) - 1;
+  while (i >= 0 && shouldSkip(order[i])) i--;
+  if (i >= 0) goStep(order[i]);
 }
 function updateProgress() {
-  const visible = STEP_ORDER.filter((s) => !shouldSkip(s));
+  const visible = stepOrder().filter((s) => !shouldSkip(s));
   const idx = visible.indexOf(state.step);
   $("#steps").innerHTML = visible.map((s, i) =>
     `<li class="${i === idx ? "active" : i < idx ? "done" : ""}">${STEP_LABEL[s]}</li>`).join("");
@@ -188,20 +205,24 @@ function updateProgress() {
 
 // ---------- category ----------
 function renderCategories() {
-  const cats = categoriesInCatalog();
-  $("#category-list").innerHTML = cats.map((c) => {
-    const meta = CATEGORY_META[c] || { title: c, sub: "" };
-    return `<button class="choice" data-cat="${c}">
-      <span class="choice-title">${meta.title}</span>
-      <span class="choice-sub">${meta.sub}</span>
-    </button>`;
-  }).join("");
+  const services = SERVICES.filter((s) => typesInCategory(s.id).length);
+  $("#category-list").innerHTML = services.map((s) => `<button class="choice" data-cat="${s.id}">
+      <span class="choice-title">${s.title}</span>
+      <span class="choice-sub">${s.sub}</span>
+    </button>`).join("");
   $("#category-list").querySelectorAll(".choice").forEach((b) =>
     b.addEventListener("click", () => selectCategory(b.dataset.cat)));
 }
 function selectCategory(cat) {
   state.category = cat;
   state.type = null;
+  state.days = null;
+  state.selectedAddonIds = [];
+  if (isRolloff()) {
+    renderDurations();
+    advance("category");
+    return;
+  }
   const types = typesInCategory(cat);
   if (types.length === 1) {
     selectType(types[0].id);
@@ -213,7 +234,9 @@ function selectCategory(cat) {
 
 // ---------- type ----------
 function renderTypes() {
-  const meta = CATEGORY_META[state.category] || { title: "option" };
+  $("#type-continue").hidden = true;
+  if (isRolloff()) return renderMaterials();
+  const meta = serviceDef(state.category) || { title: "option" };
   $("#type-heading").textContent = `Pick your ${meta.title.toLowerCase()}`;
   const types = typesInCategory(state.category);
   $("#type-list").innerHTML = types.map((t) => `
@@ -236,20 +259,88 @@ function selectType(id) {
   advance(document.querySelector('.step[data-step="type"]').hidden ? "category" : "type");
 }
 
+// ---------- roll-off: what goes in it (after the rental length) ----------
+const tierPrice = (typeId, days) => state.tiers.find((r) => r.type_id === typeId && r.days === days)?.price_cents;
+const lbs = (tons) => Math.round(tons * 2000).toLocaleString("en-US");
+// Included weight + extra charge, from the type's weight settings (Prices & add-ons).
+function weightTerms(t) {
+  if (!t || t.weight_limit_tons == null || !(t.overage_fee_cents > 0)) return "";
+  return `Includes ${lbs(Number(t.weight_limit_tons))} lb. Additional weight is ${money(t.overage_fee_cents / 2).replace(".00", "")} per 1,000 lb.`;
+}
+function brushLoads() { return state.addons.filter((a) => a.category === BRUSH_LOAD); }
+
+function renderMaterials() {
+  $("#type-heading").textContent = `What are you putting in it? (${state.days} day${state.days === 1 ? "" : "s"})`;
+  const types = typesInCategory("rolloff");
+  $("#type-list").innerHTML = types.map((t) => {
+    const m = MATERIAL[t.category] || { title: t.name, color: "std" };
+    const price = tierPrice(t.id, state.days) ?? t.base_price_cents;
+    const terms = weightTerms(t);
+    const loads = t.category === "roll_off_green" ? brushLoads() : [];
+    return `<div class="material-card mat-${m.color}" data-id="${t.id}" role="button" tabindex="0">
+      <span class="tc-top"><span class="tc-name">${m.title}</span><span class="tc-price">${money(price)}</span></span>
+      <span class="tc-desc">${t.description || ""}</span>
+      ${terms && !(t.description || "").includes("Includes") ? `<span class="tc-terms">${terms}</span>` : ""}
+      <div class="mat-more">
+        ${loads.length ? `<span class="field-label">How much brush? (adds to the rental price)</span>
+          <div class="load-list">
+            <label class="load-opt"><input type="radio" name="brush-load" value="" checked><span>1/4 load (3.5 cubic yards)</span><span class="addon-price">Included</span></label>
+            ${loads.map((a) => `<label class="load-opt"><input type="radio" name="brush-load" value="${a.id}"><span>${a.name}</span><span class="addon-price">+${money(a.price_cents)}</span></label>`).join("")}
+          </div>` : ""}
+        ${t.category === "roll_off_heavy" ? `<p class="hint">Fill only to the line we mark so the load stays safe and legal to haul.</p>` : ""}
+        ${t.category === "roll_off_green" ? `<p class="hint">Brush and yard waste only. Trash, lumber or debris mixed in is billed as a Standard load.</p>` : ""}
+        ${t.extra_day_fee_cents ? `<p class="hint">Extra days beyond your rental: ${money(t.extra_day_fee_cents)} per day.</p>` : ""}
+      </div>
+    </div>`;
+  }).join("");
+  const pick = (card) => {
+    state.type = state.types.find((t) => t.id === card.dataset.id);
+    state.promo = null;
+    $("#type-list").querySelectorAll(".material-card").forEach((c) => c.classList.toggle("selected", c === card));
+    syncBrushLoad();
+    $("#type-continue").hidden = false;
+  };
+  $("#type-list").querySelectorAll(".material-card").forEach((card) => {
+    card.addEventListener("click", () => { if (state.type?.id !== card.dataset.id) pick(card); });
+    card.addEventListener("keydown", (e) => { if (e.target === card && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); pick(card); } });
+  });
+  $("#type-list").querySelectorAll('input[name="brush-load"]').forEach((r) => r.addEventListener("change", syncBrushLoad));
+  const again = state.type && $(`#type-list .material-card[data-id="${state.type.id}"]`);
+  if (again) pick(again); else state.type = null;
+}
+// The chosen brush load size is sent as a normal add-on (priced by the server).
+function syncBrushLoad() {
+  const ids = new Set(brushLoads().map((a) => a.id));
+  state.selectedAddonIds = state.selectedAddonIds.filter((id) => !ids.has(id));
+  if (state.type?.category === "roll_off_green") {
+    const v = document.querySelector('input[name="brush-load"]:checked')?.value;
+    if (v) state.selectedAddonIds.push(v);
+  }
+}
+
 // ---------- duration ----------
 function renderDurations() {
-  const rows = state.tiers.filter((t) => t.type_id === state.type.id).sort((a, b) => a.days - b.days);
+  // Roll-off: lengths offered across all materials, shown before the material is picked.
+  const typeIds = isRolloff() ? typesInCategory("rolloff").map((t) => t.id) : [state.type.id];
+  const byDays = new Map();
+  for (const r of state.tiers.filter((x) => typeIds.includes(x.type_id))) {
+    const cur = byDays.get(r.days);
+    if (!cur || r.price_cents < cur.price_cents) byDays.set(r.days, r);
+  }
+  const rows = [...byDays.values()].sort((a, b) => a.days - b.days);
+  const same = (d) => typeIds.every((id) => tierPrice(id, d) === tierPrice(typeIds[0], d));
   $("#duration-list").innerHTML = rows.map((r) => `
-    <button class="type-card" data-days="${r.days}">
+    <button class="type-card${r.days === state.days ? " selected" : ""}" data-days="${r.days}">
       <span class="tc-top">
         <span class="tc-name">${r.label || r.days + " Days"}</span>
-        <span class="tc-price">${money(r.price_cents)}</span>
+        <span class="tc-price">${isRolloff() && !same(r.days) ? "from " : ""}${money(r.price_cents)}</span>
       </span>
     </button>`).join("");
   $("#duration-list").querySelectorAll(".type-card").forEach((card) =>
     card.addEventListener("click", () => {
       state.days = Number(card.dataset.days);
       document.querySelectorAll("#duration-list .type-card").forEach((c) => c.classList.toggle("selected", c === card));
+      if (isRolloff()) renderTypes();
       advance("duration");
     }));
 }
@@ -324,9 +415,10 @@ async function onDetailsNext() {
 
 function renderAddons() {
   const wrap = $("#addon-wrap");
-  if (state.category !== "junk_household" || !state.addons.length) { wrap.hidden = true; return; }
+  const items = state.addons.filter((a) => a.category !== BRUSH_LOAD);
+  if (state.type?.category !== "junk_household" || !items.length) { wrap.hidden = true; return; }
   wrap.hidden = false;
-  $("#addon-list").innerHTML = state.addons.map((a) => `
+  $("#addon-list").innerHTML = items.map((a) => `
     <label class="addon-opt">
       <input type="checkbox" value="${a.id}" data-price="${a.price_cents}">
       <span>${a.name}</span><span class="addon-price">+${money(a.price_cents)}</span>
@@ -422,7 +514,7 @@ function agreementShown() {
 function applyAgreementLang() {
   $("#agreement-body").innerHTML = agreementShown();
   // The signed template is the dumpster rental text; for crew-hauled services at least show the right title.
-  const isRental = (state.category || "").startsWith("roll_off");
+  const isRental = (state.type?.category || "").startsWith("roll_off");
   const firstHeading = $("#agreement-body h3");
   if (!isRental && firstHeading) firstHeading.textContent = t("serviceTitle");
   document.querySelectorAll("#lang-toggle button").forEach((b) => b.classList.toggle("active", b.dataset.lang === state.agrLang));
@@ -556,6 +648,7 @@ function renderSummary() {
 
   $("#summary").innerHTML = `
     <div class="line"><span>${state.type.name}${isDurationType(state.type) ? ` (${state.days} days)` : ""}</span><span>${money(q.base)}</span></div>
+    ${weightTerms(state.type) ? `<div class="line note"><span>${weightTerms(state.type)}</span></div>` : ""}
     ${addons.map((a) => `<div class="line"><span>${a.name}</span><span>${money(a.price_cents)}</span></div>`).join("")}
     ${state.startDate ? `<div class="line"><span>Date</span><span>${state.startDate}</span></div>` : ""}
     ${distanceLine(q)}

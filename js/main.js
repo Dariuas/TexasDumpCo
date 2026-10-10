@@ -9,7 +9,7 @@ let applyLivePrices = () => {};
   try {
     const res = await fetch('/api/catalog');
     if (!res.ok) return;
-    const { types = [], tiers = [] } = await res.json();
+    const { types = [], tiers = [], addons = [] } = await res.json();
 
     const byCat = {};
     types.forEach((t) => { (byCat[t.category] ??= []).push(t); });
@@ -32,6 +32,34 @@ let applyLivePrices = () => {};
       if (cents != null) el.textContent = fmt(cents);
     });
     applyLivePrices();
+
+    // Roll-off rate cards (Standard / Heavy / Yard waste): included weight + extra rate per
+    // material, from each type's weight settings in Back Office -> Prices & add-ons.
+    const esc = (v) => String(v ?? '').replace(/[&<>"]/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[m]));
+    document.querySelectorAll('[data-rate-cat]').forEach((card) => {
+      const t = byCat[card.dataset.rateCat]?.[0];
+      if (!t) { card.hidden = true; return; }
+      const terms = card.querySelector('[data-rate-terms]');
+      if (terms && t.weight_limit_tons != null && t.overage_fee_cents > 0) {
+        const lb = Math.round(t.weight_limit_tons * 2000).toLocaleString('en-US');
+        terms.textContent = `Roll-off includes ${lb} lb; additional weight ${fmt(t.overage_fee_cents / 2)} per 1,000 lb.`;
+      }
+    });
+    const loads = addons.filter((a) => a.category === 'brush_load');
+    const loadList = document.getElementById('rc-loads');
+    if (loadList && loads.length) {
+      loadList.innerHTML = '<li><strong>1/4 Load</strong><span>3.5 yards &middot; included</span></li>' +
+        loads.map((a) => {
+          const [name, size] = a.name.split(/\s*\(/);
+          return `<li><strong>${esc(name)}</strong><span>${size ? esc(size.replace(/\)$/, '')) + ' &middot; ' : ''}+${fmt(a.price_cents)}</span></li>`;
+        }).join('');
+    }
+    // Junk hauling special items: the add-on items customers can tick when booking.
+    const junkItems = addons.filter((a) => a.category !== 'brush_load');
+    const junkEl = document.getElementById('junk-addons');
+    if (junkEl && junkItems.length) {
+      junkEl.innerHTML = junkItems.map((a) => `${esc(a.name)} ${fmt(a.price_cents)}`).join(' &middot; ');
+    }
 
     // Standard roll-off terms quoted in the copy (Inventory tab: extra day, overage, included weight).
     const std = byCat.roll_off_standard?.[0];
@@ -123,6 +151,11 @@ tabs.forEach(tab => {
     panels.forEach(p => p.classList.toggle('active', p.dataset.panel === target));
   });
 });
+// In-text links that open another pricing tab (e.g. "see Fees & Policies").
+document.querySelectorAll('[data-goto-tab]').forEach((a) => a.addEventListener('click', (e) => {
+  e.preventDefault();
+  document.querySelector(`.pricing-tab[data-tab="${a.dataset.gotoTab}"]`)?.click();
+}));
 
 // Haul quiz — routes the customer to the right pricing tab
 const quiz = document.getElementById('haul-quiz');
@@ -134,7 +167,7 @@ if (quiz) {
     'renovation|crew':   { tab: 'junk',        title: 'Full-Service Junk Hauling', copy: "Let our crew load and remove your remodel debris so you can stay focused on the project.", amigo: false },
     'yard|self':         { tab: 'residential', title: 'Yard Waste Roll-Off Rental', copy: "Drop a dumpster on site and load brush, branches and yard debris on your own time.", amigo: true },
     'yard|crew':         { tab: 'junk',        title: 'Full-Service Brush Hauling', copy: "Our crew loads and hauls your yard waste and brush away — no dumpster required.", amigo: false },
-    'heavy':              { tab: 'heavy',       title: 'Heavy Material Pricing', copy: "Concrete, dirt, brick and similar material is priced by weight, not container size — see rates below.", amigo: true },
+    'heavy':              { tab: 'residential', title: 'Heavy Materials Roll-Off', copy: "Concrete, dirt, brick, rock, shingles and similar material go in a Heavy Materials roll-off — see the included weight and rates below.", amigo: true },
     'contractor':         { tab: 'contractor',  title: 'Contractor & Repeat-Account Pricing', copy: "Volume rates for builders, roofers and property managers — pricing improves automatically with your monthly usage.", amigo: true },
     'unsure':              { tab: 'residential', title: "Start Here — 14-Yard Roll-Off Rental", copy: "Our most popular option while you figure out the details. Call us and we'll help dial in the right fit.", amigo: true },
   };

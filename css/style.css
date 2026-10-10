@@ -614,6 +614,31 @@ table.price-table{ width:100%; border-collapse:collapse; }
 }
 .pricing-note p{ font-size:.88rem; color: var(--steel); line-height:1.5; }
 
+/* Roll-off rate cards: Standard / Heavy Materials / Yard Waste (client price sheet colors) */
+.rate-steps{ font-family: var(--tag); font-size:.85rem; letter-spacing:.04em; text-transform:uppercase; margin:6px 0 16px; color: var(--steel); }
+.rate-steps strong{ display:inline-grid; place-items:center; width:22px; height:22px; border-radius:50%; background: var(--black); color: var(--yellow); font-size:.75rem; }
+.rate-cards{ display:grid; gap:18px; grid-template-columns:1fr; }
+@media (min-width: 760px){ .rate-cards{ grid-template-columns:1fr 1fr; } .rate-card.rc-wide{ grid-column:1 / -1; } }
+.rate-card{ background:#fbfaf6; border:2px solid var(--black); border-radius:10px; overflow:hidden; box-shadow:4px 4px 0 var(--black); padding-bottom:16px; }
+.rate-card[hidden]{ display:none; }
+.rate-card h4{ margin:0 0 12px; padding:12px 18px; font-family: var(--display); font-size:1.35rem; letter-spacing:.02em; text-transform:uppercase; }
+.rc-std h4{ background:#e9b73c; color: var(--black); }
+.rc-heavy{ background:#eef1f6; } .rc-heavy h4{ background:#3f5f86; color:#fff; }
+.rc-yard{ background:#f1f4ee; } .rc-yard h4{ background:#55744a; color:#fff; }
+.rate-card .rc-terms{ padding:0 18px; font-size:.92rem; margin:0 0 8px; color: var(--black); }
+.rc-tiers{ list-style:none; margin:0; padding:0 18px; }
+.rc-tiers li{ display:flex; justify-content:space-between; padding:6px 0; border-bottom:1px dashed rgba(0,0,0,.12); font-size:1rem; color: var(--black); }
+.rc-tiers strong{ font-family: var(--tag); font-size:1.05rem; }
+.rc-wide .rc-tiers{ display:grid; grid-template-columns:repeat(auto-fill, minmax(150px, 1fr)); gap:8px; }
+.rc-wide .rc-tiers li{ border:1px solid rgba(0,0,0,.15); border-radius:6px; background:#fff; padding:8px 12px; }
+.rate-card .rc-note{ padding:10px 18px 0; font-size:.85rem; color: var(--steel); margin:0; }
+.rate-card h5{ margin:16px 18px 8px; font-family: var(--tag); font-size:.8rem; letter-spacing:.06em; text-transform:uppercase; color: var(--black); }
+.rc-loads{ list-style:none; margin:0; padding:0 18px; display:grid; gap:8px; grid-template-columns:repeat(auto-fill, minmax(150px, 1fr)); }
+.rc-loads li{ background:#fff; border:1px solid rgba(0,0,0,.15); border-radius:6px; padding:10px; text-align:center; color: var(--black); }
+.rc-loads strong{ display:block; font-size:1rem; }
+.rc-loads span{ font-size:.85rem; color: var(--steel); }
+.rate-cta{ margin:18px 0 6px; }
+
 .pricing-footnote{
   margin-top: 28px;
   font-size: .85rem; color: var(--steel);
@@ -907,3 +932,7 @@ table.price-table{ width:100%; border-collapse:collapse; }
 .thumb button{ position:absolute; top:0; right:0; width:22px; height:22px; border:0; background:var(--black); color:var(--yellow); cursor:pointer; line-height:1; }
 .photo-msg{ font-size:.85rem; margin-top:6px; color:#a3271c; }
 .field .hint{ font-size:.8rem; color:var(--steel); text-transform:none; letter-spacing:0; font-weight:400; }
+
+/* Why section photo */
+.why-photo{ margin:28px auto 0; max-width:720px; }
+.why-photo img{ width:100%; height:auto; display:block; border:2px solid var(--black); border-radius:10px; box-shadow:6px 6px 0 var(--yellow); }
